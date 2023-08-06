@@ -1,0 +1,25 @@
+$ORIGIN .
+$TTL 60       ; 60 seconds  -0 should be 3600 for 1 hour
+rockj.net           IN SOA  a.ns.rockj.net. hostmaster.norrs.no. (
+                                2023080201 ; serial
+                                3600       ; refresh (1 hour)
+                                1800       ; retry (30 minutes)
+                                608400     ; expire (1 week 1 hour)
+                                3600       ; minimum (1 hour)
+                                )
+                        NS      a.ns.rockj.net.
+                        NS      b.ns.rockj.net.
+$ORIGIN rockj.net.
+
+a.ns			IN A	116.203.237.247
+a.ns			IN AAAA 2a01:4f8:c0c:1810:feed::1
+b.ns			IN A	194.63.248.53
+b.ns			IN AAAA 2a01:5b40:0:248::53
+@			IN A	116.203.237.247
+@			IN AAAA 2a01:4f8:c0c:1810:feed::dead
+www			IN CNAME @
+3e			IN CNAME @
+blog			IN CNAME @
+wtf			IN CNAME @
+online			IN CNAME @
+

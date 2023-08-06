@@ -1,0 +1,61 @@
+include "/etc/bind/named.conf.hodge-castor";
+
+server 134.90.145.106 { keys { hodge-castor.norrs.no.; }; };
+server 2a02:20c8:2120::2 { keys { hodge-castor.norrs.no.; }; };
+
+include "/etc/bind/named.conf.acl";
+// ns.hyp.net
+acl ns-domeneshop-axfr { 194.63.248.53/32; 2a01:5b40:0:248::53/128; };
+
+
+options {
+	directory "/var/cache/bind";
+
+	// If there is a firewall between you and nameservers you want
+	// to talk to, you may need to fix the firewall to allow multiple
+	// ports to talk.  See http://www.kb.cert.org/vuls/id/800113
+
+	// If your ISP provided one or more IP addresses for stable 
+	// nameservers, you probably want to use them as forwarders.  
+	// Uncomment the following block, and insert the addresses replacing 
+	// the all-0's placeholder.
+
+	// forwarders {
+	// 	0.0.0.0;
+	// };
+
+	auth-nxdomain no;    # conform to RFC1035
+
+	// Source IPs for notify
+	notify-source 116.203.237.247;
+	notify-source-v6 2a01:4f8:c0c:1810:feed::1;
+
+	// Source IPs for transfer
+	transfer-source 116.203.237.247;
+	transfer-source-v6 2a01:4f8:c0c:1810:feed::1;
+
+	// Source IP for query
+	query-source address 116.203.237.247;
+	query-source-v6 address 2a01:4f8:c0c:1810:feed::1;
+
+	// Turn off alternative IPs
+	use-alt-transfer-source no;
+
+	// Alternative IPs for slave-zones (just to make sure (-: )
+	alt-transfer-source 116.203.237.247;
+	alt-transfer-source-v6 2a01:4f8:c0c:1810:feed::1;
+
+
+	// Allow transfer from these IPs
+	//allow-transfer {
+  //        "slaves";       // all slaves/etc, se above
+  //        localhost;      // localhost (-:
+  //};
+
+	// Allow query from everyone
+	allow-query { any; };
+
+	// Listen on these IPs
+	listen-on-v6 { 2a01:4f8:c0c:1810:feed::1; ::1; };
+	listen-on { 116.203.237.247; 127.0.0.1; };
+};

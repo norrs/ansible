@@ -1,0 +1,94 @@
+- name: Bind
+  hosts: cloud
+  tasks:
+    - name: Install bind9
+      become: true
+      apt:
+        pkg:
+          - bind9
+          - bind9-utils
+          - bind9-dnsutils
+        state: latest
+        update_cache: true
+
+    - name: /etc/bind
+      become: true
+      ansible.builtin.file:
+        path: /etc/bind/db.d
+        state: directory
+        mode: '0755'
+
+    # Main configuration
+    - name: /etc/bind/named.conf.acl
+      become: true
+      ansible.builtin.copy:
+        src: etc/bind/named.conf.acl
+        dest: /etc/bind/named.conf.acl
+        owner: root
+        group: root
+        mode: '0644'
+        validate: named-checkconf %s
+
+    - name: Provision /etc/bind/named.conf.hodge-castor
+      become: true
+      ansible.builtin.template:
+        src: key.j2
+        dest: /etc/bind/named.conf.hodge-castor
+        owner: root
+        group: root
+        mode: '0644'
+        validate: named-checkconf %s
+      vars:
+        keyid: "hodge-castor.norrs.no."
+        # TODO: Update algorithm maybe
+        algorithm: "hmac-md5"
+        secret: "{{ lookup('community.general.onepassword', 'bind9/named.conf.hodge-castor', field='notesPlain', vault='infra.norrs') }}"
+
+    - name: /etc/bind/named.conf.options
+      become: true
+      ansible.builtin.copy:
+        src: etc/bind/named.conf.options
+        dest: /etc/bind/named.conf.options
+        owner: root
+        group: root
+        mode: '0644'
+        #validate: named-checkconf %s
+
+    - name: /etc/bind/named.conf.local
+      become: true
+      ansible.builtin.copy:
+        src: etc/bind/named.conf.local
+        dest: /etc/bind/named.conf.local
+        owner: root
+        group: root
+        mode: '0644'
+        #validate: named-checkconf -t etc/bind %s
+
+    # Zone files:
+
+    - name: Provision db.d/db.rockj.net
+      become: true
+      ansible.builtin.template:
+        src: files/etc/bind/db.d/db.rockj.net
+        dest: /etc/bind/db.d/db.rockj.net
+        owner: root
+        group: root
+        mode: '0644'
+        validate: named-checkzone rockj.net %s
+      register: reload_bind9
+
+    - name: Provision db.d/db.norrs.no
+      become: true
+      ansible.builtin.template:
+        src: files/etc/bind/db.d/db.norrs.no
+        dest: /etc/bind/db.d/db.norrs.no
+        owner: root
+        group: root
+        mode: '0644'
+        validate: named-checkzone norrs.no %s
+      register: reload_bind9
+
+    - name: Reload zonefiles
+      become: true
+      ansible.builtin.command: rndc reload
+      when: reload_bind9.changed

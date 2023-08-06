@@ -1,0 +1,39 @@
+//
+// Do any local configuration here
+//
+
+// Consider adding the 1918 zones here, if they are not used in your
+// organization
+//include "/etc/bind/zones.rfc1918";
+
+
+zone "norrs.no" {
+   type master;
+   notify yes;
+   file "/etc/bind/db.d/db.norrs.no";
+   allow-transfer { ns-domeneshop-axfr; rockj; };
+};
+
+// zone "roysindre.no" {
+//   type master;
+//   notify yes;
+//   file "/etc/bind/db.d/db.roysindre.no";
+//   allow-transfer { ns-domeneshop-axfr; rockj; };
+// };
+
+zone "rockj.net" {
+   type master;
+   notify yes;
+   file "/etc/bind/db.d/db.rockj.net";
+   allow-transfer { ns-domeneshop-axfr; rockj; };
+};
+
+//
+// // 2001:67c:550::/48   AS-ROCKJ
+// zone "0.5.5.0.c.7.6.0.1.0.0.2.ip6.arpa." {
+//   type master;
+//   notify yes;
+//   file "/etc/bind/db.d/db.2001:67c:550";
+//   allow-transfer { ns-domeneshop-axfr; rockj; jocke; };
+// };
+//
