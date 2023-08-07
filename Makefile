@@ -10,10 +10,16 @@ FILES := $(call find_files,$(SOURCE_DIR))
 # Compute the target file paths in the root directory
 TARGET_FILES := $(patsubst $(SOURCE_DIR)/%,$(CURDIR)/%,$(FILES))
 
-all: symlinks
+all: symlinks update_readme
 
 symlinks: $(TARGET_FILES)
 
 $(TARGET_FILES):
 	@mkdir -p $(dir $@)
 	@ln -sfr $(abspath $(patsubst $(CURDIR)/%, $(SOURCE_DIR)/%, $@)) $@
+
+update_readme:
+	@awk '/^# Links to READMEs$$/{f=1; print; next} !f' README.md > README_tmp.md \
+	&& echo >> README_tmp.md \
+	&& find . -iname "readme.md" -not -path "./README.md" -not -path "./collections/*" | sort | awk '{printf "- [%s](%s)\n", $$0, $$0}' >> README_tmp.md \
+	&& mv README_tmp.md README.md

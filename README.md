@@ -20,3 +20,10 @@ $ ansible-galaxy collection install community.general
 ## Secrets
 
 Obtained via 1password integrations.
+
+
+# Links to READMEs
+
+- [./playbooks/bind/readme.md](./playbooks/bind/readme.md)
+- [./playbooks/mailserver/readme.md](./playbooks/mailserver/readme.md)
+- [./private/README.md](./private/README.md)
