@@ -10,21 +10,23 @@
 zone "norrs.no" {
    type master;
    notify yes;
-   file "/etc/bind/db.d/db.norrs.no";
+   file "/var/lib/bind/db.d/db.norrs.no";
    allow-transfer { ns-domeneshop-axfr; rockj; };
+   dnssec-policy nsec3;
+   inline-signing yes;
 };
 
 // zone "roysindre.no" {
 //   type master;
 //   notify yes;
-//   file "/etc/bind/db.d/db.roysindre.no";
+//   file "/var/lib/bind/db.d/db.roysindre.no";
 //   allow-transfer { ns-domeneshop-axfr; rockj; };
 // };
 
 zone "rockj.net" {
    type master;
    notify yes;
-   file "/etc/bind/db.d/db.rockj.net";
+   file "/var/lib/bind/db.d/db.rockj.net";
    allow-transfer { ns-domeneshop-axfr; rockj; };
 };
 
@@ -33,7 +35,7 @@ zone "rockj.net" {
 // zone "0.5.5.0.c.7.6.0.1.0.0.2.ip6.arpa." {
 //   type master;
 //   notify yes;
-//   file "/etc/bind/db.d/db.2001:67c:550";
+//   file "/var/lib/bind/db.d/db.2001:67c:550";
 //   allow-transfer { ns-domeneshop-axfr; rockj; jocke; };
 // };
 //

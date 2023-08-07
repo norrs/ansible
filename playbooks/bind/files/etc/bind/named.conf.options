@@ -7,9 +7,19 @@ include "/etc/bind/named.conf.acl";
 // ns.hyp.net
 acl ns-domeneshop-axfr { 194.63.248.53/32; 2a01:5b40:0:248::53/128; };
 
+dnssec-policy "nsec3" {
+    // Contrary to popular belief, adding salt provides little value.
+    // Each DNS zone is always uniquely salted using the zone name.
+    // Operators should use a zero-length salt value.
+    // https://datatracker.ietf.org/doc/html/draft-ietf-dnsop-nsec3-guidance-10#section-2.4
+    // https://kb.isc.org/docs/dnssec-key-and-signing-policy
+    nsec3param iterations 0 optout no salt-length 0;
+};
 
 options {
 	directory "/var/cache/bind";
+
+	key-directory "/var/lib/bind/keys";
 
 	// If there is a firewall between you and nameservers you want
 	// to talk to, you may need to fix the firewall to allow multiple
@@ -23,6 +33,9 @@ options {
 	// forwarders {
 	// 	0.0.0.0;
 	// };
+
+  // If DNSSec is present, they need to be valid.
+	dnssec-validation yes;
 
 	auth-nxdomain no;    # conform to RFC1035
 

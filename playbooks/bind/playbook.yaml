@@ -11,12 +11,21 @@
         state: latest
         update_cache: true
 
-    - name: /etc/bind
+    - name: /var/lib/bind/db.d
       become: true
       ansible.builtin.file:
-        path: /etc/bind/db.d
+        path: /var/lib/bind/db.d
+        state: directory
+        owner: bind
+        mode: '0755'
+
+    - name: /var/lib/bind/keys
+      become: true
+      ansible.builtin.file:
+        path: /var/lib/bind/keys
         state: directory
         mode: '0755'
+        owner: bind
 
     # Main configuration
     - name: /etc/bind/named.conf.acl
@@ -69,8 +78,8 @@
     - name: Provision db.d/db.rockj.net
       become: true
       ansible.builtin.template:
-        src: files/etc/bind/db.d/db.rockj.net
-        dest: /etc/bind/db.d/db.rockj.net
+        src: files/var/lib/bind/db.d/db.rockj.net
+        dest: /var/lib/bind/db.d/db.rockj.net
         owner: root
         group: root
         mode: '0644'
@@ -80,8 +89,8 @@
     - name: Provision db.d/db.norrs.no
       become: true
       ansible.builtin.template:
-        src: files/etc/bind/db.d/db.norrs.no
-        dest: /etc/bind/db.d/db.norrs.no
+        src: files/var/lib/bind/db.d/db.norrs.no
+        dest: /var/lib/bind/db.d/db.norrs.no
         owner: root
         group: root
         mode: '0644'
