@@ -24,6 +24,6 @@ Obtained via 1password integrations.
 
 # Links to READMEs
 
-- [./playbooks/bind/readme.md](./playbooks/bind/readme.md)
-- [./playbooks/mailserver/readme.md](./playbooks/mailserver/readme.md)
-- [./private/README.md](./private/README.md)
+- [playbooks/bind/readme.md](./playbooks/bind/readme.md)
+- [playbooks/mailserver/readme.md](./playbooks/mailserver/readme.md)
+- [private/README.md](https://github.com/norrs/ansible-private/blob/main/README.md)

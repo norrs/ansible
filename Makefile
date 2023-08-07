@@ -21,5 +21,21 @@ $(TARGET_FILES):
 update_readme:
 	@awk '/^# Links to READMEs$$/{f=1; print; next} !f' README.md > README_tmp.md \
 	&& echo >> README_tmp.md \
-	&& find . -iname "readme.md" -not -path "./README.md" -not -path "./collections/*" | sort | awk '{printf "- [%s](%s)\n", $$0, $$0}' >> README_tmp.md \
+	&& find . -iname "readme.md" \
+		-not -path "./README.md" \
+		-not -path "./collections/*" \
+	| sort \
+	| awk '{ \
+		if ($$0 ~ /\/private\//) { \
+			gsub("/private/", "/", $$0); \
+			gsub(/^\.\//, "", $$0); \
+			link_text = $$0; \
+			printf "- [private/%s](https://github.com/norrs/ansible-private/blob/main/%s)\n", link_text, $$0; \
+		} else { \
+			link_text = $$0; \
+			gsub(/^\.\//, "", link_text); \
+			printf "- [%s](%s)\n", link_text, $$0; \
+		} \
+	}' \
+	>> README_tmp.md \
 	&& mv README_tmp.md README.md
