@@ -1,0 +1,21 @@
+[Unit]
+Description=acme companion
+Requires=docker.service,nginx-proxy.service
+
+[Service]
+ExecStartPre=/bin/sleep 1
+ExecStartPre=/usr/bin/docker pull nginxproxy/acme-companion:latest
+ExecStart=/usr/bin/docker run \
+  --name nginx-proxy-acme \
+  --restart=always \
+  --volumes-from nginx-proxy \
+  --volume /var/run/docker.sock:/var/run/docker.sock:ro \
+  --volume acme:/etc/acme.sh \
+  --env "DEFAULT_EMAIL={{ DEFAULT_EMAIL }}" \
+  nginxproxy/acme-companion
+ExecStop=/usr/bin/docker stop nginx-proxy-acme
+ExecStopPost=/usr/bin/docker rm -f nginx-proxy-acme
+ExecReload=/usr/bin/docker restart nginx-proxy-acme
+
+[Install]
+WantedBy=multi-user.target

@@ -1,0 +1,47 @@
+---
+- name: nginx proxy with letsencrypt
+  hosts: cloud
+  tasks:
+    - name: "/etc/systemd/system/nginx-proxy.service"
+      become: true
+      ansible.builtin.template:
+        src: files/nginx-proxy.service
+        dest: /etc/systemd/system/nginx-proxy.service
+        owner: root
+        group: root
+        mode: '0644'
+      when: "ansible_service_mgr == 'systemd'"
+      register: reload_systemd
+
+    - name: "/etc/systemd/system/acme-companion.service"
+      become: true
+      vars:
+        DEFAULT_EMAIL: "{{ lookup('community.general.onepassword', 'nginx-proxy-with-letsencrypt.default_email', field='notesPlain', vault='infra.norrs') }}"
+      ansible.builtin.template:
+        src: files/acme-companion.service
+        dest: /etc/systemd/system/acme-companion.service
+        owner: root
+        group: root
+        mode: '0644'
+      when: "ansible_service_mgr == 'systemd'"
+      register: reload_systemd
+
+
+    - name: Just force systemd to reread configs (2.4 and above)
+      become: true
+      ansible.builtin.systemd:
+        daemon_reload: true
+      when: reload_systemd.changed
+
+    - name: Make sure a acme-companion unit is running
+      become: true
+      ansible.builtin.systemd:
+        state: started
+        name: acme-companion
+
+    - name: Make sure a nginx-proxy unit is running
+      become: true
+      ansible.builtin.systemd:
+        state: started
+        name: nginx-proxy
+
