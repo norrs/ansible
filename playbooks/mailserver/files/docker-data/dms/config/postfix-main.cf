@@ -1,0 +1,2 @@
+smtp_bind_address = 116.203.237.247
+smtp_bind_address6 = 2a01:4f8:c0c:1810:feed::1

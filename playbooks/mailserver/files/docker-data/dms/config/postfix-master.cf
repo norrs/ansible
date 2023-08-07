@@ -1,0 +1,2 @@
+smtp-amavis/unix/smtp_bind_address=127.0.0.1
+smtp-amavis/unix/smtp_bind_address6=::1
