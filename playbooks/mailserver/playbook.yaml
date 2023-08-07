@@ -1,0 +1,71 @@
+---
+- name: mailserver
+  hosts: cloud
+  tasks:
+
+    - name: "/opt/dms"
+      become: true
+      ansible.builtin.file:
+        path: /opt/dms
+        state: directory
+        mode: '0755'
+
+    - name: "/opt/dms/compose.yaml"
+      become: true
+      ansible.builtin.copy:
+        src: ./files/mailserver/compose.yaml
+        dest: /opt/dms/compose.yaml
+        owner: root
+        group: root
+        mode: '0644'
+
+    - name: "/opt/dms/mailserver.env"
+      become: true
+      ansible.builtin.copy:
+        src: ./files/mailserver/mailserver.env
+        dest: /opt/dms/mailserver.env
+        owner: root
+        group: root
+        mode: '0644'
+
+    - name: "/etc/systemd/system/mailserver.service"
+      become: true
+      ansible.builtin.template:
+        src: files/mailserver.service
+        dest: /etc/systemd/system/mailserver.service
+        owner: root
+        group: root
+        mode: '0644'
+      when: "ansible_service_mgr == 'systemd'"
+      register: reload_systemd
+
+    - name: "/etc/systemd/system/webmail.service"
+      become: true
+      vars:
+        DEFAULT_EMAIL: "{{ lookup('community.general.onepassword', 'nginx-proxy-with-letsencrypt.default_email', field='notesPlain', vault='infra.norrs') }}"
+      ansible.builtin.template:
+        src: files/webmail.service
+        dest: /etc/systemd/system/webmail.service
+        owner: root
+        group: root
+        mode: '0644'
+      when: "ansible_service_mgr == 'systemd'"
+      register: reload_systemd
+
+    - name: Just force systemd to reread configs (2.4 and above)
+      become: true
+      ansible.builtin.systemd:
+        daemon_reload: true
+      when: reload_systemd.changed
+
+    - name: Make sure a webmail unit is running
+      become: true
+      ansible.builtin.systemd:
+        state: started
+        name: webmail
+
+    - name: Make sure a mailserver unit is running
+      become: true
+      ansible.builtin.systemd:
+        state: started
+        name: mailserver

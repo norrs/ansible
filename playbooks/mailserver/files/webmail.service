@@ -1,0 +1,23 @@
+[Unit]
+Description=webmail
+Requires=docker.service
+After=docker.service
+
+[Service]
+ExecStartPre=/bin/sleep 1
+ExecStartPre=/usr/bin/docker pull library/nginx
+ExecStart=/usr/bin/docker run \
+  --name webmail \
+  --restart=always \
+  -e "VIRTUAL_HOST=diablo.norrs.no,webmail.norrs.no" \
+  -e "LETSENCRYPT_HOST=diablo.norrs.no" \
+  -e "LETSENCRYPT_EMAIL={{ DEFAULT_EMAIL }}" \
+  -e "LETSENCRYPT_TEST=false" \
+  library/nginx
+ExecStop=/usr/bin/docker stop webmail
+ExecStopPost=/usr/bin/docker rm -f webmail
+ExecReload=/usr/bin/docker restart webmail
+
+[Install]
+WantedBy=multi-user.target
+
