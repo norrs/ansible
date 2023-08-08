@@ -64,18 +64,18 @@
       when: "ansible_service_mgr == 'systemd'"
       register: reload_systemd
 
-    - name: "/etc/systemd/system/webmail.service"
-      become: true
-      vars:
-        DEFAULT_EMAIL: "{{ lookup('community.general.onepassword', 'nginx-proxy-with-letsencrypt.default_email', field='notesPlain', vault='infra.norrs') }}"
-      ansible.builtin.template:
-        src: files/webmail.service
-        dest: /etc/systemd/system/webmail.service
-        owner: root
-        group: root
-        mode: '0644'
-      when: "ansible_service_mgr == 'systemd'"
-      register: reload_systemd
+    #- name: "/etc/systemd/system/webmail.service"
+    #  become: true
+    #  vars:
+    #    DEFAULT_EMAIL: "{{ lookup('community.general.onepassword', 'nginx-proxy-with-letsencrypt.default_email', field='notesPlain', vault='infra.norrs') }}"
+    #  ansible.builtin.template:
+    #    src: files/webmail.service
+    #    dest: /etc/systemd/system/webmail.service
+    #    owner: root
+    #    group: root
+    #    mode: '0644'
+    #  when: "ansible_service_mgr == 'systemd'"
+    #  register: reload_systemd
 
     - name: Just force systemd to reread configs (2.4 and above)
       become: true
@@ -83,11 +83,11 @@
         daemon_reload: true
       when: reload_systemd.changed
 
-    - name: Make sure a webmail unit is running
-      become: true
-      ansible.builtin.systemd:
-        state: started
-        name: webmail
+    #- name: Make sure a webmail unit is running
+    #  become: true
+    #  ansible.builtin.systemd:
+    #    state: started
+    #    name: webmail
 
     - name: Make sure a mailserver unit is running
       become: true
