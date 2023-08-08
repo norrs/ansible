@@ -37,11 +37,13 @@
       become: true
       ansible.builtin.systemd:
         state: started
+        enabled: true
         name: acme-companion
 
     - name: Make sure a nginx-proxy unit is running
       become: true
       ansible.builtin.systemd:
         state: started
+        enabled: true
         name: nginx-proxy
 

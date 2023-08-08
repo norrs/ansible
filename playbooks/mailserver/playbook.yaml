@@ -86,6 +86,7 @@
     #- name: Make sure a webmail unit is running
     #  become: true
     #  ansible.builtin.systemd:
+    #    enabled: true
     #    state: started
     #    name: webmail
 
@@ -93,4 +94,5 @@
       become: true
       ansible.builtin.systemd:
         state: started
+        enabled: true
         name: mailserver
