@@ -17,11 +17,27 @@
         state: directory
         mode: '0755'
 
+    - name: "/opt/webmail/config"
+      become: true
+      ansible.builtin.file:
+        path: /opt/webmail/config
+        state: directory
+        mode: '0755'
+
     - name: "/opt/webmail/nginx/templates/default.conf.template"
       become: true
       ansible.builtin.template:
         src: files/webmail/default.conf.template
         dest: /opt/webmail/nginx/templates/default.conf.template
+        owner: root
+        group: root
+        mode: '0644'
+
+    - name: "/opt/webmail/config/config.fail2ban.inc.php"
+      become: true
+      ansible.builtin.template:
+        src: files/webmail/config/config.fail2ban.inc.php
+        dest: /opt/webmail/config/config.fail2ban.inc.php
         owner: root
         group: root
         mode: '0644'

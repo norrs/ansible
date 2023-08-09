@@ -11,6 +11,7 @@ services:
       - 9000:9000
     volumes:
       - ./www:/var/www/html
+      - ./config:/var/roundcube/config
     environment:
       - ROUNDCUBEMAIL_DB_TYPE=pgsql
       - ROUNDCUBEMAIL_DB_HOST=roundcubedb # same as pgsql container name

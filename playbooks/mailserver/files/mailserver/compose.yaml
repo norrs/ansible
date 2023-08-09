@@ -20,6 +20,7 @@ services:
       - ./docker-data/dms/mail-state/:/var/mail-state/
       - ./docker-data/dms/mail-logs/:/var/log/mail/
       - ./docker-data/dms/config/:/tmp/docker-mailserver/
+      - /opt/webmail/www/logs/:/var/log/roundcube/:ro
       - /var/lib/docker/volumes/certs/_data:/etc/letsencrypt/live/:ro
       - /etc/localtime:/etc/localtime:ro
     #restart: always

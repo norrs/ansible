@@ -17,6 +17,13 @@
         state: directory
         mode: '0755'
 
+    #- name: "/opt/dms/docker-data/dms/config/fail2ban/filter.d"
+    #  become: true
+    #  ansible.builtin.file:
+    #    path: /opt/dms/docker-data/dms/config/fail2ban/filter.d
+    #    state: directory
+    #    mode: '0755'
+
     - name: "/opt/dms/compose.yaml"
       become: true
       ansible.builtin.copy:
@@ -52,6 +59,24 @@
         owner: root
         group: root
         mode: '0644'
+
+    - name: "/opt/dms/docker-data/dms/config/fail2ban-jail.cf"
+      become: true
+      ansible.builtin.copy:
+        src: ./files/docker-data/dms/config/fail2ban-jail.cf
+        dest: /opt/dms/docker-data/dms/config/fail2ban-jail.cf
+        owner: root
+        group: root
+        mode: '0644'
+
+    #- name: "/opt/dms/docker-data/dms/config/fail2ban/filter.d/roundcube-behind-proxy.conf"
+    #  become: true
+    #  ansible.builtin.copy:
+    #    src: ./files/docker-data/dms/config/fail2ban/filter.d/roundcube-behind-proxy.conf
+    #    dest: /opt/dms/docker-data/dms/config/fail2ban/filter.d/roundcube-behind-proxy.conf
+    #    owner: root
+    #    group: root
+    #    mode: '0644'
 
     - name: "/etc/systemd/system/mailserver.service"
       become: true
