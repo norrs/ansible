@@ -1,0 +1,6 @@
+
+auto eth0:2
+iface eth0:2 inet6 static
+    address 2a01:4f8:c0c:1810:feed::1/32
+    dns-nameservers ::1
+    gateway fe80::1
