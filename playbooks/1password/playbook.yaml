@@ -7,12 +7,12 @@
         url: https://downloads.1password.com/linux/keys/1password.asc
         dest: /usr/share/keyrings/1password-archive-keyring.asc
         checksum: sha256:145d6a930ec0326bbcff0db68111ccafe2a07222b4fd32ff6c717b9fba34708b
-      register: dearmor_gpg_key
+      register: dearmor_gpg_key_keyring
 
-    - name: Dearmor gpg key
+    - name: Dearmor 1password gpg apt key
       become: true
       ansible.builtin.command: gpg --output /usr/share/keyrings/1password-archive-keyring.gpg --dearmor /usr/share/keyrings/1password-archive-keyring.asc
-      when: dearmor_gpg_key.changed
+      when: dearmor_gpg_key_keyring.changed
 
     - name: Add 1password Repository
       become: true
@@ -27,6 +27,11 @@
         state: directory
         mode: '0755'
 
+    - name: Copy 1password gpg to debsig
+      become: true
+      ansible.builtin.copy:
+        src: /usr/share/keyrings/1password-archive-keyring.gpg
+        dest: /usr/share/debsig/keyrings/AC2D62742012EA22/debsig.gpg
 
     - name: Add 1password GPG apt Key
       become: true
