@@ -1,0 +1,45 @@
+- name: 1password
+  hosts: all:localhost
+  tasks:
+    - name: Add 1password GPG apt Key
+      become: true
+      get_url:
+        url: https://downloads.1password.com/linux/keys/1password.asc
+        dest: /usr/share/keyrings/1password-archive-keyring.asc
+        checksum: sha256:145d6a930ec0326bbcff0db68111ccafe2a07222b4fd32ff6c717b9fba34708b
+      register: dearmor_gpg_key
+
+    - name: Dearmor gpg key
+      become: true
+      ansible.builtin.command: gpg --output /usr/share/keyrings/1password-archive-keyring.gpg --dearmor /usr/share/keyrings/1password-archive-keyring.asc
+      when: dearmor_gpg_key.changed
+
+    - name: Add 1password Repository
+      become: true
+      apt_repository:
+        repo: deb [arch=amd64 signed-by=/usr/share/keyrings/1password-archive-keyring.gpg] https://downloads.1password.com/linux/debian/amd64 stable main
+        state: present
+
+    - name: Debsig-verify policy
+      become: true
+      ansible.builtin.file:
+        path: /etc/debsig/policies/AC2D62742012EA22
+        state: directory
+        mode: '0755'
+
+
+    - name: Add 1password GPG apt Key
+      become: true
+      get_url:
+        url: https://downloads.1password.com/linux/debian/debsig/1password.pol
+        dest: /etc/debsig/policies/AC2D62742012EA22/1password.pol
+        checksum: sha256:c0c148807d8dc588750a9cc512c7243ed10a9cfd5519a5a6f0a038ad66a19c39
+
+
+    - name: Update apt and install 1password
+      become: true
+      apt:
+        pkg:
+          - 1password
+        state: latest
+        update_cache: true
