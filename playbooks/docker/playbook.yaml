@@ -1,5 +1,5 @@
 - name: Docker
-  hosts: cloud
+  hosts: all:localhost
   tasks:
     - name: Install required system packages
       become: true

@@ -21,6 +21,10 @@ $ ansible-galaxy collection install community.general
 
 Obtained via 1password integrations.
 
+## Playbooks for nodes
+
+`$ ansible-playbook --connection=local --inventory 127.0.0.1 --limit 127.0.0.1 playbooks/orgrimmar/playbook.yaml --ask-become-pass`
+
 
 # Links to READMEs
 

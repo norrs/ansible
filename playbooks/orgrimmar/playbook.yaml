@@ -1,0 +1,9 @@
+- name: "Orgrimmar: WGTWO"
+  hosts: localhost
+  connection: local
+
+- name: "Orgrimmar - install docker"
+
+  ansible.builtin.import_playbook: ../docker/playbook.yaml
+
+
