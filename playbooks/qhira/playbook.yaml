@@ -1,0 +1,25 @@
+- name: "Workstation: qhira"
+  hosts: localhost
+  connection: local
+  tasks:
+    - name: Get remote file attributes
+      stat:
+        path: /etc/systemd/logind.conf
+      register: file_stats
+
+    - name: Set previous attributes
+      set_fact:
+        previous_file_stats: "{{ file_stats }}"
+
+    - name: "Suspend on closing laptop lid"
+      become: true
+      ansible.builtin.command: "sed -i -E 's/^(#?HandleLidSwitch=).*/HandleLidSwitch=suspend/' -i /etc/systemd/logind.conf"
+      when: file_stats.stat.mtime != previous_file_stats.stat.mtime or
+        file_stats.stat.size != previous_file_stats.stat.size
+
+- name: "Qhira - install docker"
+  ansible.builtin.import_playbook: ../docker/playbook.yaml
+- name: "Qhira - install 1password"
+  ansible.builtin.import_playbook: ../1password/playbook.yaml
+- name: "Qhira - install rtx"
+  ansible.builtin.import_playbook: ../rtx/playbook.yaml
