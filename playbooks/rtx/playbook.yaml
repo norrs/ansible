@@ -1,0 +1,29 @@
+- name: rtx
+  hosts: all:localhost
+  tasks:
+    - name: Add rtx GPG apt Key
+      become: true
+      get_url:
+        url: https://rtx.pub/gpg-key.pub
+        dest: /etc/apt/keyrings/rtx-archive-keyring.gpg.pub
+        checksum: sha256:bf3bedf8b33a9486ba1a2f488b3fc59c6080b7a06fb7e5d3deac3ffa6aaaf2e2
+      register: dearmor_gpg_key_keyring
+
+    - name: Dearmor rtx gpg apt key
+      become: true
+      ansible.builtin.command: gpg --output /etc/apt/keyrings/rtx-archive-keyring.gpg --dearmor /etc/apt/keyrings/rtx-archive-keyring.gpg.pub
+      when: dearmor_gpg_key_keyring.changed
+
+    - name: Add rtx Repository
+      become: true
+      apt_repository:
+        repo: deb [arch=amd64 signed-by=/etc/apt/keyrings/rtx-archive-keyring.gpg] https://rtx.pub/deb stable main
+        state: present
+
+    - name: Update apt and install rtx
+      become: true
+      apt:
+        pkg:
+          - rtx
+        state: latest
+        update_cache: true
