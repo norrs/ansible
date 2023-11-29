@@ -28,6 +28,11 @@ Obtained via 1password integrations.
 `$ ansible-playbook --connection=local --inventory 127.0.0.1 --limit 127.0.0.1 playbooks/orgrimmar/playbook.yaml --ask-become-pass`
 `$ ansible-playbook --connection=local --inventory 127.0.0.1 --limit 127.0.0.1 playbooks/qhira/playbook.yaml --ask-become-pass`
 
+# Tips
+
+Check facts:
+
+`$ ansible --connection=local -i 127.0.0.1, all -m setup | less -R`
 
 # Links to READMEs
 
