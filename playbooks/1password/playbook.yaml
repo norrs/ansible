@@ -27,6 +27,13 @@
         state: directory
         mode: '0755'
 
+    - name: Debsig-verify policy 2
+      become: true
+      ansible.builtin.file:
+        path: /usr/share/debsig/keyrings/AC2D62742012EA22
+        state: directory
+        mode: '0755'
+
     - name: Copy 1password gpg to debsig
       become: true
       ansible.builtin.copy:
