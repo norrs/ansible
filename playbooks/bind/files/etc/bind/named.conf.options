@@ -68,6 +68,9 @@ options {
 	// Allow query from everyone
 	allow-query { any; };
 
+        // Only allow recursion from trusted sources
+	allow-recursion { trusted; };
+
 	// Listen on these IPs
 	listen-on-v6 { 2a01:4f8:c0c:1810:feed::1; ::1; };
 	listen-on { 116.203.237.247; 127.0.0.1; };
