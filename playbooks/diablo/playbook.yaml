@@ -10,7 +10,7 @@
       owner: root
       group: root
       mode: '0644'
-  
+
   - name: "Disable cloud network configuration"
     become: true
     ansible.builtin.copy:
@@ -19,7 +19,7 @@
       owner: root
       group: root
       mode: '0644'
-  
+
   - name: "/etc/dhcp/dhclient.conf"
     become: true
     ansible.builtin.copy:

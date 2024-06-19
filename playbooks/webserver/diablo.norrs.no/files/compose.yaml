@@ -20,4 +20,3 @@ services:
       - LETSENCRYPT_HOST=diablo.norrs.no
       - LETSENCRYPT_EMAIL={{ DEFAULT_EMAIL }}
       - LETSENCRYPT_TEST=false
-

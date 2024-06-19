@@ -46,4 +46,3 @@
         state: started
         enabled: true
         name: nginx-proxy
-

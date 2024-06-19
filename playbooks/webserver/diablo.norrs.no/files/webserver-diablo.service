@@ -14,4 +14,3 @@ ExecStop=/usr/bin/docker compose -f compose.yaml down
 
 [Install]
 WantedBy=multi-user.target
-
