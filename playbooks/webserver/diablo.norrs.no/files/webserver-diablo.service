@@ -1,0 +1,17 @@
+[Unit]
+Description=webserver diablo service
+Requires=docker.service
+After=docker.service
+
+[Service]
+Restart=always
+
+WorkingDirectory=/opt/webserver/diablo.norrs.no
+
+ExecStartPre=/bin/sleep 1
+ExecStart=/usr/bin/docker compose -f compose.yaml up
+ExecStop=/usr/bin/docker compose -f compose.yaml down
+
+[Install]
+WantedBy=multi-user.target
+

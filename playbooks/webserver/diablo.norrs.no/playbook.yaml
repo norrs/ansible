@@ -1,0 +1,67 @@
+---
+- name: webserver-diablo
+  hosts: cloud
+  tasks:
+
+    - name: "/opt/webserver/diablo.norrs.no"
+      become: true
+      ansible.builtin.file:
+        path: /opt/webserver/diablo.norrs.no
+        state: directory
+        mode: '0755'
+
+    - name: "/opt/webserver/diablo.norrs.no/conf.d"
+      become: true
+      ansible.builtin.file:
+        path: /opt/webserver/diablo.norrs.no/conf.d
+        state: directory
+        mode: '0755'
+
+    - name: "/opt/webserver/diablo.norrs.no/www"
+      become: true
+      ansible.builtin.file:
+        path: /opt/webserver/diablo.norrs.no/www
+        state: directory
+        mode: '0755'
+
+    - name: "copy www"
+      become: true
+      ansible.builtin.copy:
+        src: www
+        dest: /opt/webserver/diablo.norrs.no
+
+    - name: "/opt/webserver/compose.yaml"
+      become: true
+      ansible.builtin.template:
+        src: files/compose.yaml
+        dest: /opt/webserver/compose.yaml
+        owner: root
+        group: root
+        mode: '0644'
+      vars:
+        DEFAULT_EMAIL: "{{ lookup('community.general.onepassword', 'nginx-proxy-with-letsencrypt.default_email', field='notesPlain', vault='infra.norrs') }}"
+
+
+    - name: "/etc/systemd/system/webserver-diablo.service"
+      become: true
+      ansible.builtin.template:
+        src: files/webserver-diablo.service
+        dest: /etc/systemd/system/webserver-diablo.service
+        owner: root
+        group: root
+        mode: '0644'
+      when: "ansible_service_mgr == 'systemd'"
+      register: reload_systemd
+
+    - name: Just force systemd to reread configs (2.4 and above)
+      become: true
+      ansible.builtin.systemd:
+        daemon_reload: true
+      when: reload_systemd.changed
+
+    - name: Make sure webserver-diablo unit is running
+      become: true
+      ansible.builtin.systemd:
+        state: started
+        enabled: true
+        name: webserver-diablo
