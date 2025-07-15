@@ -1,0 +1,14 @@
+- name: "Workstation: dalaran"
+  hosts: dalaran
+  tasks:
+    - name: Get remote file attributes
+      stat:
+        path: /etc/systemd/logind.conf
+      register: file_stats
+
+    - name: Set previous attributes
+      set_fact:
+        previous_file_stats: "{{ file_stats }}"
+
+- name: "Dalaran - install docker"
+  ansible.builtin.import_playbook: ../docker/playbook.yaml

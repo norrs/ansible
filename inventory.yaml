@@ -2,3 +2,6 @@
 cloud:
   hosts:
     116.203.237.247:
+dalaran:
+  hosts:
+    192.168.69.25:
