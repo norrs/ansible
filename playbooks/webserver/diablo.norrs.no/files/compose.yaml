@@ -3,8 +3,8 @@ services:
     image: nginx:latest
     container_name: nginx
     # restart: unless-stopped
-    ports:
-      - 9010:80
+    #ports:
+    #  - 9010:80
       # If you need SSL connection
       #- '443:443'
     volumes:
