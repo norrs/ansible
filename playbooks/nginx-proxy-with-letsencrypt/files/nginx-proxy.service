@@ -4,7 +4,7 @@ Requires=docker.service
 
 [Service]
 ExecStartPre=/bin/sleep 1
-ExecStartPre=/usr/bin/docker pull nginxproxy/nginx-proxy:latest
+ExecStartPre=/usr/bin/docker pull nginxproxy/nginx-proxy:1.7
 ExecStart=/usr/bin/docker run \
   --name nginx-proxy \
   --restart=always \
