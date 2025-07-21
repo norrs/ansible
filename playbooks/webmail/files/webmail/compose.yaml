@@ -43,8 +43,6 @@ services:
      - "80"
     #ports:
     #  - 9009:80
-      # If you need SSL connection
-      #- '443:443'
     depends_on:
       - roundcubemail
     links:

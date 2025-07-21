@@ -24,6 +24,15 @@
         state: directory
         mode: '0755'
 
+    - name: "/opt/webserver/diablo.norrs.no/conf.d/diablo.conf"
+      become: true
+      ansible.builtin.template:
+        src: files/conf.d/diablo.conf
+        dest: /opt/webserver/diablo.norrs.no/conf.d/diablo.conf
+        owner: root
+        group: root
+        mode: '0644'
+
     - name: "copy www"
       become: true
       ansible.builtin.copy:

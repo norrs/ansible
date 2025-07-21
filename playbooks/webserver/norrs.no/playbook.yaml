@@ -17,6 +17,15 @@
         state: directory
         mode: '0755'
 
+    - name: "/opt/webserver/norrs.no/conf.d/diablo.conf"
+      become: true
+      ansible.builtin.template:
+        src: files/conf.d/norrs.conf
+        dest: /opt/webserver/norrs.no/conf.d/norrs.conf
+        owner: root
+        group: root
+        mode: '0644'
+
     - name: "/opt/webserver/norrs.no/www"
       become: true
       ansible.builtin.file:
