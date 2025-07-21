@@ -1,6 +1,7 @@
 [Unit]
 Description=nginx proxy
 Requires=docker.service
+After=docker.service
 
 [Service]
 ExecStartPre=/bin/sleep 1
@@ -8,7 +9,7 @@ ExecStartPre=/usr/bin/docker pull nginxproxy/nginx-proxy:1.7
 ExecStart=/usr/bin/docker run \
   --name nginx-proxy \
   --restart=always \
-  --network=host \
+  --network=webservers \
   -e TRUST_DOWNSTREAM_PROXY=false \
   --publish 80:80 \
   --publish 443:443 \

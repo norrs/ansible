@@ -1,6 +1,7 @@
 [Unit]
 Description=acme companion
-Requires=docker.service,nginx-proxy.service
+Requires=docker.service nginx-proxy.service
+After=docker.service nginx-proxy.service
 
 [Service]
 ExecStartPre=/bin/sleep 1
@@ -8,6 +9,7 @@ ExecStartPre=/usr/bin/docker pull nginxproxy/acme-companion:2.6.0
 ExecStart=/usr/bin/docker run \
   --name nginx-proxy-acme \
   --restart=always \
+  --network=webservers \
   --volumes-from nginx-proxy \
   --volume /var/run/docker.sock:/var/run/docker.sock:ro \
   --volume acme:/etc/acme.sh \

@@ -1,26 +1,26 @@
 ---
-- name: webserver-diablo
+- name: webserver-norrs
   hosts: cloud
   tasks:
 
-    - name: "/opt/webserver/diablo.norrs.no"
+    - name: "/opt/webserver/norrs.no"
       become: true
       ansible.builtin.file:
-        path: /opt/webserver/diablo.norrs.no
+        path: /opt/webserver/norrs.no
         state: directory
         mode: '0755'
 
-    - name: "/opt/webserver/diablo.norrs.no/conf.d"
+    - name: "/opt/webserver/norrs.no/conf.d"
       become: true
       ansible.builtin.file:
-        path: /opt/webserver/diablo.norrs.no/conf.d
+        path: /opt/webserver/norrs.no/conf.d
         state: directory
         mode: '0755'
 
-    - name: "/opt/webserver/diablo.norrs.no/www"
+    - name: "/opt/webserver/norrs.no/www"
       become: true
       ansible.builtin.file:
-        path: /opt/webserver/diablo.norrs.no/www
+        path: /opt/webserver/norrs.no/www
         state: directory
         mode: '0755'
 
@@ -28,13 +28,13 @@
       become: true
       ansible.builtin.copy:
         src: www
-        dest: /opt/webserver/diablo.norrs.no
+        dest: /opt/webserver/norrs.no
 
-    - name: "/opt/webserver/diablo.norrs.no/compose.yaml"
+    - name: "/opt/webserver/norrs.no/compose.yaml"
       become: true
       ansible.builtin.template:
         src: files/compose.yaml
-        dest: /opt/webserver/diablo.norrs.no/compose.yaml
+        dest: /opt/webserver/norrs.no/compose.yaml
         owner: root
         group: root
         mode: '0644'
@@ -42,11 +42,12 @@
         DEFAULT_EMAIL: "{{ lookup('community.general.onepassword', 'nginx-proxy-with-letsencrypt.default_email', field='notesPlain', vault='infra.norrs') }}"
 
 
-    - name: "/etc/systemd/system/webserver-diablo.service"
+
+    - name: "/etc/systemd/system/webserver-norrs.service"
       become: true
       ansible.builtin.template:
-        src: files/webserver-diablo.service
-        dest: /etc/systemd/system/webserver-diablo.service
+        src: files/webserver-norrs.service
+        dest: /etc/systemd/system/webserver-norrs.service
         owner: root
         group: root
         mode: '0644'
@@ -59,9 +60,9 @@
         daemon_reload: true
       when: reload_systemd.changed
 
-    - name: Make sure webserver-diablo unit is running
+    - name: Make sure webserver-norrs unit is running
       become: true
       ansible.builtin.systemd:
         state: started
         enabled: true
-        name: webserver-diablo
+        name: webserver-norrs

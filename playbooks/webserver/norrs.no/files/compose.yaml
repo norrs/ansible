@@ -1,11 +1,12 @@
 version: "3.8"
+
 services:
-  nginx-diablo:
-    image: nginx:latest
-    container_name: nginx
-    # restart: unless-stopped
+  nginx-norrs:
+    image: nginx:1.29
+    container_name: nginx-norrs
     expose:
      - "80"
+    # restart: unless-stopped
     #ports:
     #  - 9010:80
       # If you need SSL connection
@@ -18,9 +19,9 @@ services:
       # If you need SSL connection, you can provide your own certificates
       - /var/lib/docker/volumes/certs/_data:/etc/letsencrypt/live/:ro
     environment:
-      - VIRTUAL_HOST=diablo.norrs.no
+      - VIRTUAL_HOST=norrs.no
       - VIRTUAL_PORT=80 # This is odd when 9010:80 . Seems nginx-proxy in host mode connects directly!
-      - LETSENCRYPT_HOST=diablo.norrs.no
+      - LETSENCRYPT_HOST=norrs.no
       - LETSENCRYPT_EMAIL={{ DEFAULT_EMAIL }}
       - LETSENCRYPT_TEST=false
     networks:

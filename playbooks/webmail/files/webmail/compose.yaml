@@ -1,3 +1,4 @@
+version: "3.8"
 services:
   roundcubemail:
     image: roundcube/roundcubemail:latest-fpm
@@ -38,6 +39,8 @@ services:
     image: nginx:latest
     container_name: roundcubenginx
     # restart: unless-stopped
+    expose:
+     - "80"
     #ports:
     #  - 9009:80
       # If you need SSL connection
@@ -61,6 +64,13 @@ services:
       - LETSENCRYPT_EMAIL={{ DEFAULT_EMAIL }}
       - LETSENCRYPT_TEST=false
       - NGINX_PHP_CGI=roundcubemail:9000  # same as roundcubemail container name
+    networks:
+      - default
+      - webservers
+
+networks:
+  webservers:
+    external: true
 
 ### Optional: add a full mail server stack to use with Roundcube like https://hub.docker.com/r/tvial/docker-mailserver
 #   mailserver:

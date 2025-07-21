@@ -1,7 +1,7 @@
 [Unit]
 Description=webmail service
 Requires=docker.service
-After=docker.service
+After=docker.service nginx-proxy.service
 
 [Service]
 Restart=always

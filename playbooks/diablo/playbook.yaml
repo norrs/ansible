@@ -28,3 +28,9 @@
       owner: root
       group: root
       mode: '0644'
+
+- import_playbook: ../mailserver/playbook.yaml
+- import_playbook: ../nginx-proxy-with-letsencrypt/playbook.yaml
+- import_playbook: ../webserver/diablo.norrs.no/playbook.yaml
+- import_playbook: ../webserver/norrs.no/playbook.yaml
+- import_playbook: ../webmail/playbook.yaml

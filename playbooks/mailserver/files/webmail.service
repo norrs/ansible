@@ -9,6 +9,7 @@ ExecStartPre=/usr/bin/docker pull library/nginx
 ExecStart=/usr/bin/docker run \
   --name webmail \
   --restart=always \
+  --network webservers \
   -e "VIRTUAL_HOST=diablo.norrs.no,webmail.norrs.no" \
   -e "LETSENCRYPT_HOST=diablo.norrs.no" \
   -e "LETSENCRYPT_EMAIL={{ DEFAULT_EMAIL }}" \
