@@ -1,0 +1,23 @@
+---
+- name: demo-norrs
+  hosts: all
+  tasks:
+
+    - name: "/tmp/norrs-demo"
+      become: true
+      ansible.builtin.file:
+        path: /opt/webmail
+        state: directory
+        mode: '0755'
+
+    - name: "/tmp/norrs-demo/test.txt"
+      become: true
+      ansible.builtin.template:
+        src: templates/op_note.j2
+        dest: /tmp/norrs-demo/test.txt
+        owner: root
+        group: root
+        mode: '0644'
+      vars:
+        op_note: "{{ lookup('community.general.onepassword', 'webmail', field='nginx.htpasswd', vault='infra.norrs') }}"
+
