@@ -4,30 +4,23 @@
   tasks:
 
     - name: "/tmp/norrs-demo"
-      become: true
       ansible.builtin.file:
         path: /tmp/norrs-demo
         state: directory
         mode: '0755'
 
     - name: "/tmp/norrs-demo/test.txt"
-      become: true
       ansible.builtin.template:
         src: templates/op_note.j2
         dest: /tmp/norrs-demo/test.txt
-        owner: root
-        group: root
         mode: '0644'
       vars:
         op_note: "{{ lookup('community.general.onepassword', 'norrs-demo', field='1', vault='infra.norrs') }}"
 
     - name: "/tmp/norrs-demo/test2.txt"
-      become: true
       ansible.builtin.template:
         src: templates/op_note.j2
         dest: /tmp/norrs-demo/test2.txt
-        owner: root
-        group: root
         mode: '0644'
       vars:
         op_note: "{{ lookup('community.general.onepassword', 'norrs-demo', field='2', vault='infra.norrs') }}"
