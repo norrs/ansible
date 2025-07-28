@@ -6,7 +6,7 @@
     - name: "/tmp/norrs-demo"
       become: true
       ansible.builtin.file:
-        path: /opt/webmail
+        path: /tmp/norrs-demo
         state: directory
         mode: '0755'
 
