@@ -9,6 +9,32 @@
         state: directory
         mode: '0755'
 
+    - name: "/tmp/norrs-demo/get_session_id"
+      ansible.builtin.copy:
+        src: ./files/demo-norrs/get_session_id
+        dest: /tmp/norrs-demo/get_session_id
+        mode: '0755'
+
+    - name: Run shell script
+      shell: /tmp/norrs-demo/get_session_id
+      register: script_output
+      args:
+        chdir: /tmp/norrs-demo
+
+    - name: print stdout
+      debug:
+        var: script_output.stdout
+
+    - name: Run shell script2
+      shell: /tmp/norrs-demo/get_session_id
+      register: script_output2
+      args:
+        chdir: /tmp/norrs-demo
+
+    - name: print stdout2
+      debug:
+        var: script_output2.stdout
+
     - name: "/tmp/norrs-demo/test.txt"
       ansible.builtin.template:
         src: templates/op_note.j2
@@ -24,4 +50,3 @@
         mode: '0644'
       vars:
         op_note: "{{ lookup('community.general.onepassword', 'norrs-demo', field='2', vault='infra.norrs') }}"
-
