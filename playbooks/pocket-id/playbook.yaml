@@ -3,8 +3,23 @@
   hosts: "{{ pocket_id_hosts | default('dalaran') }}"
   vars:
     pocket_id_service_dir: /service/pocket-id
+    pocket_id_smtp_secret_container_path: /run/secrets/pocket_id_smtp_password
     # Required private key: pocket_id_hostname. See private/group_vars/dalaran.yaml.
   tasks:
+    - name: Check Pocket ID SMTP service account mapping
+      ansible.builtin.assert:
+        that:
+          - pocket_id_smtp_service_account is defined
+          - pocket_id_smtp_alias is defined
+          - pocket_id_smtp_host is defined
+          - mailserver_service_accounts is defined
+          - pocket_id_smtp_service_account in mailserver_service_accounts
+          - (mailserver_service_accounts[pocket_id_smtp_service_account].aliases | default([]) | selectattr('name', 'equalto', pocket_id_smtp_alias) | list | length) == 1
+          - mailserver_service_accounts[pocket_id_smtp_service_account].address is defined
+          - mailserver_service_accounts[pocket_id_smtp_service_account].op_item is defined
+        fail_msg: "Pocket ID SMTP is enabled, but the selected service account or alias is missing from mailserver_service_accounts. Add the account and alias to private group vars, then run the mailserver playbook before Pocket ID."
+      when: pocket_id_smtp_enabled | default(false) | bool
+
     - name: "{{ pocket_id_service_dir }}"
       become: true
       ansible.builtin.file:
@@ -34,6 +49,18 @@
       vars:
         pocket_id_encryption_key: "{{ lookup('community.general.onepassword', 'pocket-id', field='ENCRYPTION_KEY', vault='infra.norrs') }}"
       register: pocket_id_encryption_key_file
+
+    - name: "{{ pocket_id_service_dir }}/smtp_password"
+      become: true
+      ansible.builtin.copy:
+        content: "{{ lookup('community.general.onepassword', pocket_id_smtp_op_item, field=pocket_id_smtp_op_field | default('PASSWORD'), vault=pocket_id_smtp_op_vault | default('infra.norrs')) | trim }}"
+        dest: "{{ pocket_id_service_dir }}/smtp_password"
+        owner: "1000"
+        group: "1000"
+        mode: '0640'
+      register: pocket_id_smtp_password_file
+      no_log: true
+      when: pocket_id_smtp_enabled | default(false) | bool
 
     - name: "{{ pocket_id_service_dir }}/.env"
       become: true
@@ -86,7 +113,7 @@
       ansible.builtin.systemd:
         state: restarted
         name: pocket-id
-      when: pocket_id_unit.changed or pocket_id_compose.changed or pocket_id_env.changed or pocket_id_encryption_key_file.changed
+      when: pocket_id_unit.changed or pocket_id_compose.changed or pocket_id_env.changed or pocket_id_encryption_key_file.changed or (pocket_id_smtp_password_file.changed | default(false))
 
     - name: Make sure pocket-id is running
       become: true
