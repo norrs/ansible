@@ -60,7 +60,7 @@
         owner: root
         group: root
         mode: '0644'
-      when: "ansible_service_mgr == 'systemd'"
+      when: ansible_facts['service_mgr'] == 'systemd'
       register: reload_systemd
 
     - name: Just force systemd to reread configs (2.4 and above)

@@ -1,25 +1,37 @@
 - name: Docker
   hosts: "{{ docker_hosts | default('all:localhost') }}"
   tasks:
-    - name: Check Docker apt source
+    - name: Check /etc/apt/sources.list
       ansible.builtin.stat:
-        path: /etc/apt/sources.list.d/docker.list
-      register: docker_apt_source
+        path: /etc/apt/sources.list
+      register: docker_apt_main_sources
 
-    - name: Read Docker apt source
-      ansible.builtin.slurp:
-        src: /etc/apt/sources.list.d/docker.list
-      register: docker_apt_source_content
-      when: docker_apt_source.stat.exists
+    - name: Remove Docker apt source lines from /etc/apt/sources.list
+      become: true
+      ansible.builtin.lineinfile:
+        path: /etc/apt/sources.list
+        regexp: '^.*https://download\.docker\.com/linux/.*$'
+        state: absent
+      when: docker_apt_main_sources.stat.exists
 
-    - name: Remove stale Docker apt source
+    - name: Find Docker apt source fragments
+      become: true
+      ansible.builtin.command:
+        argv:
+          - grep
+          - -rEl
+          - https://download\.docker\.com/linux/
+          - /etc/apt/sources.list.d
+      register: docker_apt_source_fragments
+      changed_when: false
+      failed_when: docker_apt_source_fragments.rc not in [0, 1]
+
+    - name: Remove Docker apt source fragments
       become: true
       ansible.builtin.file:
-        path: /etc/apt/sources.list.d/docker.list
+        path: "{{ item }}"
         state: absent
-      when:
-        - docker_apt_source.stat.exists
-        - "'/dists/forky/' in (docker_apt_source_content.content | b64decode)"
+      loop: "{{ docker_apt_source_fragments.stdout_lines }}"
 
     - name: Install required system packages
       become: true
