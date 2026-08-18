@@ -1,0 +1,218 @@
+---
+- name: beszel
+  hosts: "{{ beszel_hosts | default('dalaran') }}"
+  vars:
+    beszel_service_dir: /service/beszel
+    beszel_database_path: "{{ beszel_service_dir }}/beszel_data/data.db"
+    beszel_tinyauth_op_vault: infra.norrs
+    beszel_tinyauth_op_item: tinyauth
+    # Required private key: beszel_hostname. See private/group_vars/dalaran.yaml.
+  tasks:
+    - name: "{{ beszel_service_dir }}"
+      become: true
+      ansible.builtin.file:
+        path: "{{ beszel_service_dir }}"
+        state: directory
+        owner: root
+        group: root
+        mode: '0755'
+
+    - name: Create beszel service directories
+      become: true
+      ansible.builtin.file:
+        path: "{{ beszel_service_dir }}/{{ item }}"
+        state: directory
+        owner: root
+        group: root
+        mode: '0755'
+      loop:
+        - beszel_data
+        - beszel_socket
+
+    - name: "{{ beszel_service_dir }}/compose.yaml"
+      become: true
+      ansible.builtin.template:
+        src: files/beszel/compose.yaml
+        dest: "{{ beszel_service_dir }}/compose.yaml"
+        owner: root
+        group: root
+        mode: '0640'
+      register: beszel_compose
+
+    - name: /etc/systemd/system/beszel.service
+      become: true
+      ansible.builtin.template:
+        src: files/beszel.service
+        dest: /etc/systemd/system/beszel.service
+        owner: root
+        group: root
+        mode: '0644'
+      when: ansible_facts['service_mgr'] == 'systemd'
+      register: beszel_unit
+
+    - name: Reload systemd
+      become: true
+      ansible.builtin.systemd:
+        daemon_reload: true
+      when: beszel_unit.changed
+
+    - name: Restart beszel when config changed
+      become: true
+      ansible.builtin.systemd:
+        state: restarted
+        name: beszel
+      when: beszel_unit.changed or beszel_compose.changed
+
+    - name: Make sure beszel is running
+      become: true
+      ansible.builtin.systemd:
+        state: started
+        enabled: true
+        name: beszel
+
+    - name: Read Beszel OIDC client credentials from 1Password
+      ansible.builtin.set_fact:
+        beszel_tinyauth_client_id: "{{ lookup('community.general.onepassword', beszel_tinyauth_op_item, field='BESZEL_CLIENT_ID', vault=beszel_tinyauth_op_vault, errors='ignore') | default('', true) }}"
+        beszel_tinyauth_client_secret: "{{ lookup('community.general.onepassword', beszel_tinyauth_op_item, field='BESZEL_CLIENT_SECRET', vault=beszel_tinyauth_op_vault, errors='ignore') | default('', true) }}"
+      no_log: true
+
+    - name: Skip Beszel OIDC provider config until TinyAuth client credentials exist
+      ansible.builtin.debug:
+        msg: "Skipping Beszel OIDC provider config: BESZEL_CLIENT_ID and BESZEL_CLIENT_SECRET are missing from the 1Password item 'tinyauth'."
+      when: beszel_tinyauth_client_id | length == 0 or beszel_tinyauth_client_secret | length == 0
+
+    - name: Install sqlite3 for Beszel PocketBase configuration
+      become: true
+      ansible.builtin.package:
+        name: sqlite3
+        state: present
+      when: beszel_tinyauth_client_id | length > 0 and beszel_tinyauth_client_secret | length > 0
+
+    - name: Wait for Beszel PocketBase database
+      become: true
+      ansible.builtin.wait_for:
+        path: "{{ beszel_database_path }}"
+        timeout: 60
+      when: beszel_tinyauth_client_id | length > 0 and beszel_tinyauth_client_secret | length > 0
+
+    - name: Wait for Beszel users collection
+      become: true
+      ansible.builtin.command:
+        argv:
+          - sqlite3
+          - "{{ beszel_database_path }}"
+          - "SELECT count(*) FROM _collections WHERE name = 'users' AND type = 'auth';"
+      register: beszel_users_collection
+      changed_when: false
+      retries: 12
+      delay: 5
+      until: beszel_users_collection.rc == 0 and (beszel_users_collection.stdout | trim) == '1'
+      when: beszel_tinyauth_client_id | length > 0 and beszel_tinyauth_client_secret | length > 0
+
+    - name: Check Beszel OIDC provider config
+      become: true
+      ansible.builtin.command:
+        argv:
+          - sqlite3
+          - "{{ beszel_database_path }}"
+      args:
+        stdin: |
+          WITH expected(raw) AS (
+            VALUES(json('{{ {
+              "name": "oidc",
+              "clientId": beszel_tinyauth_client_id,
+              "clientSecret": beszel_tinyauth_client_secret,
+              "authURL": "https://" ~ tinyauth_hostname ~ "/authorize",
+              "tokenURL": "https://" ~ tinyauth_hostname ~ "/api/oidc/token",
+              "userInfoURL": "https://" ~ tinyauth_hostname ~ "/api/oidc/userinfo",
+              "displayName": "Tinyauth",
+              "pkce": true
+            } | to_json | replace("'", "''") }}'))
+          )
+          SELECT CASE
+            WHEN EXISTS (
+              SELECT 1
+              FROM _collections,
+                   json_each(COALESCE(json_extract(options, '$.oauth2.providers'), json('[]')))
+              WHERE _collections.name = 'users'
+                AND _collections.type = 'auth'
+                AND json_extract(options, '$.oauth2.enabled') = 1
+                AND json_extract(value, '$.name') = json_extract((SELECT raw FROM expected), '$.name')
+                AND json_extract(value, '$.clientId') = json_extract((SELECT raw FROM expected), '$.clientId')
+                AND json_extract(value, '$.clientSecret') = json_extract((SELECT raw FROM expected), '$.clientSecret')
+                AND json_extract(value, '$.authURL') = json_extract((SELECT raw FROM expected), '$.authURL')
+                AND json_extract(value, '$.tokenURL') = json_extract((SELECT raw FROM expected), '$.tokenURL')
+                AND json_extract(value, '$.userInfoURL') = json_extract((SELECT raw FROM expected), '$.userInfoURL')
+                AND json_extract(value, '$.displayName') = json_extract((SELECT raw FROM expected), '$.displayName')
+                AND json_extract(value, '$.pkce') = json_extract((SELECT raw FROM expected), '$.pkce')
+            )
+            THEN 0
+            ELSE 1
+          END;
+      register: beszel_oidc_config_needed
+      changed_when: false
+      when: beszel_tinyauth_client_id | length > 0 and beszel_tinyauth_client_secret | length > 0
+      no_log: true
+
+    - name: Stop Beszel before PocketBase OIDC config update
+      become: true
+      ansible.builtin.systemd:
+        state: stopped
+        name: beszel
+      when:
+        - beszel_oidc_config_needed is not skipped
+        - (beszel_oidc_config_needed.stdout | trim) == '1'
+
+    - name: Configure Beszel PocketBase OIDC provider
+      become: true
+      ansible.builtin.command:
+        argv:
+          - sqlite3
+          - "{{ beszel_database_path }}"
+      args:
+        stdin: |
+          WITH provider(raw) AS (
+            VALUES(json('{{ {
+              "name": "oidc",
+              "clientId": beszel_tinyauth_client_id,
+              "clientSecret": beszel_tinyauth_client_secret,
+              "authURL": "https://" ~ tinyauth_hostname ~ "/authorize",
+              "tokenURL": "https://" ~ tinyauth_hostname ~ "/api/oidc/token",
+              "userInfoURL": "https://" ~ tinyauth_hostname ~ "/api/oidc/userinfo",
+              "displayName": "Tinyauth",
+              "pkce": true
+            } | to_json | replace("'", "''") }}'))
+          ),
+          filtered(providers) AS (
+            SELECT COALESCE(json_group_array(json(value)), json('[]'))
+            FROM _collections,
+                 json_each(COALESCE(json_extract(options, '$.oauth2.providers'), json('[]')))
+            WHERE _collections.name = 'users'
+              AND _collections.type = 'auth'
+              AND json_extract(value, '$.name') != json_extract((SELECT raw FROM provider), '$.name')
+          )
+          UPDATE _collections
+          SET options = json_set(
+                COALESCE(NULLIF(options, ''), '{}'),
+                '$.oauth2.enabled',
+                json('true'),
+                '$.oauth2.providers',
+                json_insert((SELECT providers FROM filtered), '$[#]', json((SELECT raw FROM provider)))
+              ),
+              updated = strftime('%Y-%m-%d %H:%M:%fZ', 'now')
+          WHERE name = 'users'
+            AND type = 'auth';
+      when:
+        - beszel_oidc_config_needed is not skipped
+        - (beszel_oidc_config_needed.stdout | trim) == '1'
+      no_log: true
+
+    - name: Start Beszel after PocketBase OIDC config update
+      become: true
+      ansible.builtin.systemd:
+        state: started
+        enabled: true
+        name: beszel
+      when:
+        - beszel_oidc_config_needed is not skipped
+        - (beszel_oidc_config_needed.stdout | trim) == '1'

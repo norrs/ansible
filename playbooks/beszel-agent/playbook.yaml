@@ -1,0 +1,288 @@
+---
+- name: beszel-agent hub bootstrap
+  hosts: "{{ beszel_agent_hub_hosts | default(beszel_agent_hub_host | default('dalaran')) }}"
+  vars:
+    beszel_agent_hub_service_dir: /service/beszel
+    beszel_agent_hub_data_dir: "{{ beszel_agent_hub_service_dir }}/beszel_data"
+    beszel_agent_database_path: "{{ beszel_agent_hub_data_dir }}/data.db"
+    beszel_agent_hub_private_key_path: "{{ beszel_agent_hub_data_dir }}/id_ed25519"
+    beszel_agent_token_chars: "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"
+    beszel_agent_record_id_chars: "abcdefghijklmnopqrstuvwxyz0123456789"
+  tasks:
+    - name: Install Beszel hub bootstrap dependencies
+      become: true
+      ansible.builtin.package:
+        name:
+          - openssh-client
+          - sqlite3
+        state: present
+
+    - name: Make sure Beszel hub is running
+      become: true
+      ansible.builtin.systemd:
+        state: started
+        enabled: true
+        name: beszel
+
+    - name: Wait for Beszel PocketBase database
+      become: true
+      ansible.builtin.wait_for:
+        path: "{{ beszel_agent_database_path }}"
+        timeout: 60
+
+    - name: Wait for Beszel universal token collection
+      become: true
+      ansible.builtin.command:
+        argv:
+          - sqlite3
+          - "{{ beszel_agent_database_path }}"
+          - "SELECT count(*) FROM _collections WHERE name = 'universal_tokens';"
+      register: beszel_agent_universal_tokens_collection
+      changed_when: false
+      retries: 12
+      delay: 5
+      until: beszel_agent_universal_tokens_collection.rc == 0 and (beszel_agent_universal_tokens_collection.stdout | trim) == '1'
+
+    - name: Generate Beszel hub SSH key if absent
+      become: true
+      ansible.builtin.command:
+        argv:
+          - ssh-keygen
+          - -t
+          - ed25519
+          - -N
+          - ""
+          - -C
+          - beszel-hub
+          - -f
+          - "{{ beszel_agent_hub_private_key_path }}"
+          - -q
+        creates: "{{ beszel_agent_hub_private_key_path }}"
+
+    - name: Protect Beszel hub SSH private key
+      become: true
+      ansible.builtin.file:
+        path: "{{ beszel_agent_hub_private_key_path }}"
+        owner: root
+        group: root
+        mode: '0600'
+
+    - name: Extract Beszel hub public key
+      become: true
+      ansible.builtin.command:
+        argv:
+          - ssh-keygen
+          - -y
+          - -f
+          - "{{ beszel_agent_hub_private_key_path }}"
+      register: beszel_agent_hub_public_key_result
+      changed_when: false
+
+    - name: Set Beszel hub public key
+      ansible.builtin.set_fact:
+        beszel_agent_hub_public_key: "{{ beszel_agent_hub_public_key_result.stdout | trim }}"
+
+    - name: Find Beszel user for agent-owned systems
+      become: true
+      ansible.builtin.command:
+        argv:
+          - sqlite3
+          - "{{ beszel_agent_database_path }}"
+          - "SELECT id FROM users WHERE COALESCE(role, 'user') != 'readonly' ORDER BY CASE role WHEN 'admin' THEN 0 ELSE 1 END, created LIMIT 1;"
+      register: beszel_agent_owner_user
+      changed_when: false
+
+    - name: Skip Beszel agent bootstrap until an owner user exists
+      ansible.builtin.debug:
+        msg: "Skipping beszel-agent bootstrap: Beszel has no non-readonly user yet. Log in to Beszel once through TinyAuth/Pocket ID so the users collection has an owner, then rerun this playbook."
+      when: beszel_agent_owner_user.stdout | trim | length == 0
+
+    - name: End Beszel agent bootstrap when no owner user exists
+      ansible.builtin.meta: end_host
+      when: beszel_agent_owner_user.stdout | trim | length == 0
+
+    - name: Check existing Beszel permanent universal token
+      become: true
+      ansible.builtin.command:
+        argv:
+          - sqlite3
+          - "{{ beszel_agent_database_path }}"
+          - "SELECT token FROM universal_tokens WHERE user = '{{ beszel_agent_owner_user.stdout | trim }}' LIMIT 1;"
+      register: beszel_agent_existing_token
+      changed_when: false
+      no_log: true
+
+    - name: Generate Beszel permanent universal token when absent
+      ansible.builtin.set_fact:
+        beszel_agent_generated_token: "ba-{{ lookup('community.general.random_string', length=48, override_all=beszel_agent_token_chars) }}"
+        beszel_agent_generated_token_record_id: "{{ lookup('community.general.random_string', length=10, override_all=beszel_agent_record_id_chars) }}"
+      when: beszel_agent_existing_token.stdout | trim | length == 0
+      no_log: true
+
+    - name: Create Beszel permanent universal token when absent
+      when: beszel_agent_generated_token is defined
+      no_log: true
+      block:
+        - name: Stop Beszel before creating permanent universal token
+          become: true
+          ansible.builtin.systemd:
+            state: stopped
+            name: beszel
+
+        - name: Create Beszel permanent universal token
+          become: true
+          ansible.builtin.command:
+            argv:
+              - sqlite3
+              - "{{ beszel_agent_database_path }}"
+          args:
+            stdin: |
+              INSERT INTO universal_tokens (id, user, token, created)
+              VALUES (
+                '{{ beszel_agent_generated_token_record_id }}',
+                '{{ beszel_agent_owner_user.stdout | trim }}',
+                '{{ beszel_agent_generated_token }}',
+                strftime('%Y-%m-%d %H:%M:%fZ', 'now')
+              )
+              ON CONFLICT(user) DO UPDATE SET token = excluded.token;
+      always:
+        - name: Start Beszel after permanent universal token update
+          become: true
+          ansible.builtin.systemd:
+            state: started
+            enabled: true
+            name: beszel
+
+    - name: Set Beszel agent token
+      ansible.builtin.set_fact:
+        beszel_agent_token: "{{ (beszel_agent_existing_token.stdout | trim) if (beszel_agent_existing_token.stdout | trim | length > 0) else beszel_agent_generated_token }}"
+      no_log: true
+
+- name: beszel-agent
+  hosts: "{{ beszel_agent_hosts | default('dalaran') }}"
+  vars:
+    beszel_agent_hub_host: dalaran
+    beszel_agent_service_dir: /service/beszel-agent
+    beszel_agent_hub_socket_dir: /service/beszel/beszel_socket
+    beszel_agent_system_name: "{{ inventory_hostname }}"
+    beszel_agent_image: henrygd/beszel-agent:alpine
+    beszel_agent_docker_socket: /var/run/docker.sock
+    beszel_agent_smart_enabled: true
+    beszel_agent_smart_devices: []
+  tasks:
+    - name: Skip Beszel agent until hub bootstrap completes
+      ansible.builtin.debug:
+        msg: "Skipping beszel-agent: hub bootstrap did not produce a public key/token. Log in to Beszel once so a non-readonly user exists, then rerun."
+      when: hostvars[beszel_agent_hub_host].beszel_agent_hub_public_key is not defined or hostvars[beszel_agent_hub_host].beszel_agent_token is not defined
+
+    - name: End Beszel agent play when hub bootstrap is incomplete
+      ansible.builtin.meta: end_host
+      when: hostvars[beszel_agent_hub_host].beszel_agent_hub_public_key is not defined or hostvars[beszel_agent_hub_host].beszel_agent_token is not defined
+
+    - name: Set Beszel agent effective connection values
+      ansible.builtin.set_fact:
+        beszel_agent_hub_local: "{{ inventory_hostname == beszel_agent_hub_host }}"
+        beszel_agent_effective_hub_url: "{{ beszel_agent_hub_url | default('http://127.0.0.1:8090') }}"
+        beszel_agent_effective_listen: "{{ beszel_agent_listen | default('/beszel_socket/beszel.sock' if inventory_hostname == beszel_agent_hub_host else '45876') }}"
+        beszel_agent_hub_public_key: "{{ hostvars[beszel_agent_hub_host].beszel_agent_hub_public_key }}"
+        beszel_agent_token: "{{ hostvars[beszel_agent_hub_host].beszel_agent_token }}"
+      no_log: true
+
+    - name: Install Beszel agent dependencies
+      become: true
+      ansible.builtin.package:
+        name:
+          - smartmontools
+        state: present
+
+    - name: Detect SMART base devices
+      become: true
+      ansible.builtin.shell:
+        cmd: |
+          set -euo pipefail
+          find /dev -maxdepth 1 \( -name 'sd[a-z]' -o -name 'nvme[0-9]' \) -printf '%p\n' | sort
+        executable: /bin/bash
+      register: beszel_agent_detected_smart_devices
+      changed_when: false
+      when:
+        - beszel_agent_smart_enabled | bool
+        - beszel_agent_smart_devices | length == 0
+
+    - name: Set effective SMART devices
+      ansible.builtin.set_fact:
+        beszel_agent_effective_smart_devices: >-
+          {{
+            beszel_agent_smart_devices
+            if beszel_agent_smart_devices | length > 0
+            else beszel_agent_detected_smart_devices.stdout_lines | default([])
+          }}
+      when: beszel_agent_smart_enabled | bool
+
+    - name: Disable SMART devices when SMART support is disabled
+      ansible.builtin.set_fact:
+        beszel_agent_effective_smart_devices: []
+      when: not (beszel_agent_smart_enabled | bool)
+
+    - name: Show detected SMART devices
+      ansible.builtin.debug:
+        msg: "Beszel agent SMART devices: {{ beszel_agent_effective_smart_devices | join(', ') if beszel_agent_effective_smart_devices | length > 0 else 'none detected' }}"
+
+    - name: "{{ beszel_agent_service_dir }}"
+      become: true
+      ansible.builtin.file:
+        path: "{{ beszel_agent_service_dir }}"
+        state: directory
+        owner: root
+        group: root
+        mode: '0755'
+
+    - name: Create Beszel agent data directory
+      become: true
+      ansible.builtin.file:
+        path: "{{ beszel_agent_service_dir }}/beszel_agent_data"
+        state: directory
+        owner: root
+        group: root
+        mode: '0755'
+
+    - name: "{{ beszel_agent_service_dir }}/compose.yaml"
+      become: true
+      ansible.builtin.template:
+        src: files/beszel-agent/compose.yaml
+        dest: "{{ beszel_agent_service_dir }}/compose.yaml"
+        owner: root
+        group: root
+        mode: '0640'
+      register: beszel_agent_compose
+      no_log: true
+
+    - name: /etc/systemd/system/beszel-agent.service
+      become: true
+      ansible.builtin.template:
+        src: files/beszel-agent.service
+        dest: /etc/systemd/system/beszel-agent.service
+        owner: root
+        group: root
+        mode: '0644'
+      when: ansible_facts['service_mgr'] == 'systemd'
+      register: beszel_agent_unit
+
+    - name: Reload systemd
+      become: true
+      ansible.builtin.systemd:
+        daemon_reload: true
+      when: beszel_agent_unit.changed
+
+    - name: Restart beszel-agent when config changed
+      become: true
+      ansible.builtin.systemd:
+        state: restarted
+        name: beszel-agent
+      when: beszel_agent_unit.changed or beszel_agent_compose.changed
+
+    - name: Make sure beszel-agent is running
+      become: true
+      ansible.builtin.systemd:
+        state: started
+        enabled: true
+        name: beszel-agent

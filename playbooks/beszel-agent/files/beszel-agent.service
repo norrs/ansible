@@ -1,0 +1,21 @@
+[Unit]
+Description=beszel-agent service
+{% if beszel_agent_hub_local | default(false) | bool %}
+Requires=docker.service beszel.service
+After=docker.service beszel.service
+{% else %}
+Wants=network-online.target
+Requires=docker.service
+After=docker.service network-online.target
+{% endif %}
+
+[Service]
+Restart=always
+WorkingDirectory=/service/beszel-agent
+
+ExecStartPre=/bin/sleep 1
+ExecStart=/usr/bin/docker compose -f compose.yaml up --force-recreate
+ExecStop=/usr/bin/docker compose -f compose.yaml down
+
+[Install]
+WantedBy=multi-user.target

@@ -1,4 +1,8 @@
 ---
+- import_playbook: ../docker/playbook.yaml
+  vars:
+    docker_hosts: cloud
+
 - name: Bootstrap
   hosts: cloud
   tasks:

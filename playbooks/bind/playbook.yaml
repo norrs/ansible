@@ -1,6 +1,17 @@
 - name: Bind
   hosts: cloud
   tasks:
+    - name: Update private dynamic BIND ACL entries
+      ansible.builtin.command:
+        argv:
+          - "{{ playbook_dir }}/../../scripts/update-dynamic-bind-acl.bash"
+          - "--all"
+      no_log: true
+      delegate_to: localhost
+      become: false
+      register: bind_dynamic_acl_update
+      changed_when: bind_dynamic_acl_update.stdout is search('^Updated ')
+
     - name: Install bind9
       become: true
       apt:
@@ -37,6 +48,7 @@
         group: root
         mode: '0644'
         validate: named-checkconf %s
+      register: bind_acl
 
     - name: Provision /etc/bind/named.conf.hodge-castor
       become: true
@@ -52,6 +64,32 @@
         # TODO: Update algorithm maybe
         algorithm: "hmac-md5"
         secret: "{{ lookup('community.general.onepassword', 'bind9/named.conf.hodge-castor', field='notesPlain', vault='infra.norrs') }}"
+      register: bind_hodge_castor_key
+
+    - name: Provision /etc/bind/named.conf.acme-dalaran
+      become: true
+      ansible.builtin.template:
+        src: key.j2
+        dest: /etc/bind/named.conf.acme-dalaran
+        owner: root
+        group: bind
+        mode: '0640'
+        validate: named-checkconf %s
+      vars:
+        keyid: "acme-dalaran.norrs.no."
+        algorithm: "hmac-sha256"
+        secret: "{{ lookup('community.general.onepassword', 'bind9/named.conf.acme-dalaran', field='TSIG_SECRET', vault='infra.norrs') }}"
+      register: bind_acme_dalaran_key
+
+    - name: /etc/bind/named.conf.acme-dalaran-policy
+      become: true
+      ansible.builtin.copy:
+        src: etc/bind/named.conf.acme-dalaran-policy
+        dest: /etc/bind/named.conf.acme-dalaran-policy
+        owner: root
+        group: root
+        mode: '0644'
+      register: bind_acme_dalaran_policy
 
     - name: /etc/bind/named.conf.options
       become: true
@@ -72,6 +110,7 @@
         group: root
         mode: '0644'
         #validate: named-checkconf -t etc/bind %s
+      register: bind_named_local
 
     # Zone files:
 
@@ -84,20 +123,41 @@
         group: root
         mode: '0644'
         validate: named-checkzone rockj.net %s
-      register: reload_bind9
+      register: bind_rockj_zone
 
-    - name: Provision db.d/db.norrs.no
+    - name: Update inline-signed norrs.no zone file
+      block:
+        - name: Freeze norrs.no before updating zone file
+          become: true
+          ansible.builtin.command: rndc freeze norrs.no
+          register: bind_norrs_freeze
+          changed_when: false
+          failed_when: false
+
+        - name: Provision db.d/db.norrs.no
+          become: true
+          ansible.builtin.template:
+            src: files/var/lib/bind/db.d/db.norrs.no
+            dest: /var/lib/bind/db.d/db.norrs.no
+            owner: root
+            group: root
+            mode: '0644'
+            validate: named-checkzone norrs.no %s
+          register: bind_norrs_zone
+      always:
+        - name: Thaw norrs.no after updating zone file
+          become: true
+          ansible.builtin.command: rndc thaw norrs.no
+          changed_when: bind_norrs_zone is defined and bind_norrs_zone.changed
+          failed_when: false
+          when: bind_norrs_freeze is defined and bind_norrs_freeze.rc == 0
+
+    - name: Reconfigure bind
       become: true
-      ansible.builtin.template:
-        src: files/var/lib/bind/db.d/db.norrs.no
-        dest: /var/lib/bind/db.d/db.norrs.no
-        owner: root
-        group: root
-        mode: '0644'
-        validate: named-checkzone norrs.no %s
-      register: reload_bind9
+      ansible.builtin.command: rndc reconfig
+      when: bind_acl.changed or bind_hodge_castor_key.changed or bind_acme_dalaran_key.changed or bind_acme_dalaran_policy.changed or bind_named_local.changed
 
     - name: Reload zonefiles
       become: true
       ansible.builtin.command: rndc reload
-      when: reload_bind9.changed
+      when: bind_rockj_zone.changed or (bind_norrs_zone is defined and bind_norrs_zone.changed)

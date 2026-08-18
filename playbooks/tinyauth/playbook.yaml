@@ -1,0 +1,215 @@
+---
+- name: tinyauth
+  hosts: "{{ tinyauth_hosts | default('dalaran') }}"
+  vars:
+    tinyauth_service_dir: /service/tinyauth
+    tinyauth_op_vault: infra.norrs
+    tinyauth_op_item: tinyauth
+    tinyauth_beszel_client_secret_chars: "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_-"
+    # Required private keys: tinyauth_hostname, pocket_id_hostname, beszel_hostname.
+    # See private/group_vars/dalaran.yaml.
+  tasks:
+    - name: Read TinyAuth secrets from 1Password
+      ansible.builtin.set_fact:
+        tinyauth_pocket_id_client_id: "{{ lookup('community.general.onepassword', tinyauth_op_item, field='POCKET_ID_CLIENT_ID', vault=tinyauth_op_vault, errors='ignore') | default('', true) }}"
+        tinyauth_pocket_id_client_secret: "{{ lookup('community.general.onepassword', tinyauth_op_item, field='POCKET_ID_CLIENT_SECRET', vault=tinyauth_op_vault, errors='ignore') | default('', true) }}"
+        tinyauth_oauth_whitelist: "{{ lookup('community.general.onepassword', tinyauth_op_item, field='OAUTH_WHITELIST', vault=tinyauth_op_vault, errors='ignore') | default('', true) }}"
+        tinyauth_existing_beszel_client_id: "{{ lookup('community.general.onepassword', tinyauth_op_item, field='BESZEL_CLIENT_ID', vault=tinyauth_op_vault, errors='ignore') | default('', true) }}"
+        tinyauth_existing_beszel_client_secret: "{{ lookup('community.general.onepassword', tinyauth_op_item, field='BESZEL_CLIENT_SECRET', vault=tinyauth_op_vault, errors='ignore') | default('', true) }}"
+      no_log: true
+
+    - name: Skip TinyAuth until Pocket ID OIDC client credentials exist
+      ansible.builtin.debug:
+        msg: "Skipping TinyAuth: create the TinyAuth OIDC client in Pocket ID, then store POCKET_ID_CLIENT_ID and POCKET_ID_CLIENT_SECRET in the 1Password item 'tinyauth'."
+      when: tinyauth_pocket_id_client_id | length == 0 or tinyauth_pocket_id_client_secret | length == 0
+
+    - name: End TinyAuth play for hosts without Pocket ID OIDC client credentials
+      ansible.builtin.meta: end_host
+      when: tinyauth_pocket_id_client_id | length == 0 or tinyauth_pocket_id_client_secret | length == 0
+
+    - name: Normalize TinyAuth OAuth whitelist
+      ansible.builtin.set_fact:
+        tinyauth_oauth_whitelist_trimmed: "{{ tinyauth_oauth_whitelist | trim }}"
+      no_log: true
+
+    - name: Check TinyAuth OAuth whitelist shape
+      ansible.builtin.set_fact:
+        tinyauth_oauth_whitelist_is_identity_filter: >-
+          {{
+            tinyauth_oauth_whitelist_trimmed | length == 0
+            or '@' in tinyauth_oauth_whitelist_trimmed
+            or '.' in tinyauth_oauth_whitelist_trimmed
+            or tinyauth_oauth_whitelist_trimmed is match('^/.*/$')
+          }}
+      no_log: true
+
+    - name: Warn about ignored TinyAuth OAuth whitelist
+      ansible.builtin.debug:
+        msg: "Ignoring OAUTH_WHITELIST from 1Password: TinyAuth uses this for OAuth email/domain/regex filtering, not Pocket ID group names. Use Pocket ID Allowed User Groups for group-based TinyAuth access."
+      when: not (tinyauth_oauth_whitelist_is_identity_filter | bool)
+
+    - name: Set effective TinyAuth OAuth whitelist
+      ansible.builtin.set_fact:
+        tinyauth_effective_oauth_whitelist: "{{ tinyauth_oauth_whitelist_trimmed if (tinyauth_oauth_whitelist_is_identity_filter | bool) and tinyauth_oauth_whitelist_trimmed | length > 0 else '/.*/' }}"
+      no_log: true
+
+    - name: Generate Beszel OIDC client credentials when absent
+      ansible.builtin.set_fact:
+        tinyauth_generated_beszel_client_id: "{{ lookup('community.general.random_string', length=8, override_all='0123456789abcdef') }}-{{ lookup('community.general.random_string', length=4, override_all='0123456789abcdef') }}-{{ lookup('community.general.random_string', length=4, override_all='0123456789abcdef') }}-{{ lookup('community.general.random_string', length=4, override_all='0123456789abcdef') }}-{{ lookup('community.general.random_string', length=12, override_all='0123456789abcdef') }}"
+        tinyauth_generated_beszel_client_secret: "ta-{{ lookup('community.general.random_string', length=60, override_all=tinyauth_beszel_client_secret_chars) }}"
+      when: not tinyauth_existing_beszel_client_id or not tinyauth_existing_beszel_client_secret
+      no_log: true
+
+    - name: Store generated Beszel OIDC client credentials in 1Password
+      when: tinyauth_generated_beszel_client_id is defined
+      block:
+        - name: Upsert generated Beszel OIDC client credentials in 1Password
+          delegate_to: localhost
+          become: false
+          ansible.builtin.shell:
+            cmd: |
+              set -euo pipefail
+              op item get "$TINYAUTH_OP_ITEM" --vault "$TINYAUTH_OP_VAULT" --format=json |
+                jq --arg client_id "$BESZEL_CLIENT_ID" --arg client_secret "$BESZEL_CLIENT_SECRET" '
+                  .fields |= (
+                    map(select(.label != "BESZEL_CLIENT_ID" and .label != "BESZEL_CLIENT_SECRET"))
+                    + [
+                      {"label": "BESZEL_CLIENT_ID", "type": "STRING", "value": $client_id},
+                      {"label": "BESZEL_CLIENT_SECRET", "type": "CONCEALED", "value": $client_secret}
+                    ]
+                  )
+                ' |
+                op item edit "$TINYAUTH_OP_ITEM" --vault "$TINYAUTH_OP_VAULT"
+            executable: /bin/bash
+          environment:
+            TINYAUTH_OP_ITEM: "{{ tinyauth_op_item }}"
+            TINYAUTH_OP_VAULT: "{{ tinyauth_op_vault }}"
+            BESZEL_CLIENT_ID: "{{ tinyauth_generated_beszel_client_id }}"
+            BESZEL_CLIENT_SECRET: "{{ tinyauth_generated_beszel_client_secret }}"
+          no_log: true
+      rescue:
+        - name: Explain Beszel OIDC client credential storage failure
+          ansible.builtin.fail:
+            msg: "Failed to write BESZEL_CLIENT_ID and BESZEL_CLIENT_SECRET to the 1Password item 'tinyauth'. Check that the local op CLI is signed in, jq is installed, and the active 1Password account has write access to vault 'infra.norrs'."
+
+    - name: Set Beszel OIDC client credentials
+      ansible.builtin.set_fact:
+        tinyauth_beszel_client_id: "{{ tinyauth_generated_beszel_client_id | default(tinyauth_existing_beszel_client_id, true) }}"
+        tinyauth_beszel_client_secret: "{{ tinyauth_generated_beszel_client_secret | default(tinyauth_existing_beszel_client_secret, true) }}"
+      no_log: true
+
+    - name: "{{ tinyauth_service_dir }}"
+      become: true
+      ansible.builtin.file:
+        path: "{{ tinyauth_service_dir }}"
+        state: directory
+        owner: root
+        group: root
+        mode: '0755'
+
+    - name: Create tinyauth service directories
+      become: true
+      ansible.builtin.file:
+        path: "{{ tinyauth_service_dir }}/{{ item }}"
+        state: directory
+        owner: root
+        group: root
+        mode: '0755'
+      loop:
+        - data
+        - resources
+        - oidc
+
+    - name: Generate Tinyauth OIDC private key
+      become: true
+      ansible.builtin.command:
+        cmd: openssl genrsa -traditional -out {{ tinyauth_service_dir }}/oidc/private.pem 4096
+        creates: "{{ tinyauth_service_dir }}/oidc/private.pem"
+
+    - name: Check Tinyauth OIDC private key format
+      become: true
+      ansible.builtin.command:
+        argv:
+          - sh
+          - -c
+          - "head -n 1 {{ tinyauth_service_dir }}/oidc/private.pem"
+      register: tinyauth_oidc_private_key_header
+      changed_when: false
+
+    - name: Convert Tinyauth OIDC private key to traditional RSA format
+      become: true
+      ansible.builtin.shell:
+        cmd: |
+          set -euo pipefail
+          openssl rsa \
+            -in {{ tinyauth_service_dir }}/oidc/private.pem \
+            -traditional \
+            -out {{ tinyauth_service_dir }}/oidc/private.pem.pkcs1
+          mv {{ tinyauth_service_dir }}/oidc/private.pem.pkcs1 {{ tinyauth_service_dir }}/oidc/private.pem
+        executable: /bin/bash
+      when: tinyauth_oidc_private_key_header.stdout == '-----BEGIN PRIVATE KEY-----'
+
+    - name: Generate Tinyauth OIDC public key
+      become: true
+      ansible.builtin.command:
+        cmd: openssl rsa -in {{ tinyauth_service_dir }}/oidc/private.pem -pubout -out {{ tinyauth_service_dir }}/oidc/public.pem
+        creates: "{{ tinyauth_service_dir }}/oidc/public.pem"
+
+    - name: Protect Tinyauth OIDC private key
+      become: true
+      ansible.builtin.file:
+        path: "{{ tinyauth_service_dir }}/oidc/private.pem"
+        owner: root
+        group: root
+        mode: '0600'
+
+    - name: "{{ tinyauth_service_dir }}/.env"
+      become: true
+      ansible.builtin.template:
+        src: templates/env.j2
+        dest: "{{ tinyauth_service_dir }}/.env"
+        owner: root
+        group: root
+        mode: '0640'
+      register: tinyauth_env
+
+    - name: "{{ tinyauth_service_dir }}/compose.yaml"
+      become: true
+      ansible.builtin.template:
+        src: files/tinyauth/compose.yaml
+        dest: "{{ tinyauth_service_dir }}/compose.yaml"
+        owner: root
+        group: root
+        mode: '0644'
+      register: tinyauth_compose
+
+    - name: /etc/systemd/system/tinyauth.service
+      become: true
+      ansible.builtin.template:
+        src: files/tinyauth.service
+        dest: /etc/systemd/system/tinyauth.service
+        owner: root
+        group: root
+        mode: '0644'
+      when: ansible_facts['service_mgr'] == 'systemd'
+      register: tinyauth_unit
+
+    - name: Reload systemd
+      become: true
+      ansible.builtin.systemd:
+        daemon_reload: true
+      when: tinyauth_unit.changed
+
+    - name: Restart tinyauth when config changed
+      become: true
+      ansible.builtin.systemd:
+        state: restarted
+        name: tinyauth
+      when: tinyauth_unit.changed or tinyauth_compose.changed or tinyauth_env.changed
+
+    - name: Make sure tinyauth is running
+      become: true
+      ansible.builtin.systemd:
+        state: started
+        enabled: true
+        name: tinyauth

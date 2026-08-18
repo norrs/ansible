@@ -13,7 +13,10 @@ ExecStart=/usr/bin/docker run \
   --volumes-from nginx-proxy \
   --volume /var/run/docker.sock:/var/run/docker.sock:ro \
   --volume acme:/etc/acme.sh \
-  --env "DEFAULT_EMAIL={{ DEFAULT_EMAIL }}" \
+  --env-file {{ nginx_proxy_acme_env_file | default('/service/nginx-proxy/acme-companion.env') }} \
+{% if nginx_proxy_acme_challenge | default('HTTP-01') == 'DNS-01' %}
+  --volume {{ nginx_proxy_nsupdate_key_path | default('/service/nginx-proxy/nsupdate.key') }}:/etc/acme.sh/nsupdate.key:ro \
+{% endif %}
   nginxproxy/acme-companion
 ExecStop=/usr/bin/docker stop nginx-proxy-acme
 ExecStopPost=/usr/bin/docker rm -f nginx-proxy-acme

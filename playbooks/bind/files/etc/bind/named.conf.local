@@ -6,6 +6,7 @@
 // organization
 //include "/etc/bind/zones.rfc1918";
 
+include "/etc/bind/named.conf.acme-dalaran";
 
 zone "norrs.no" {
    type master;
@@ -14,6 +15,7 @@ zone "norrs.no" {
    allow-transfer { ns-domeneshop-axfr; rockj; };
    dnssec-policy nsec3;
    inline-signing yes;
+   include "/etc/bind/named.conf.acme-dalaran-policy";
 };
 
 // zone "roysindre.no" {
