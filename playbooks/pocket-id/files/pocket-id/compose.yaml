@@ -1,0 +1,23 @@
+services:
+  pocket-id:
+    image: ghcr.io/pocket-id/pocket-id:v2
+    container_name: pocket-id
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      VIRTUAL_HOST: "{{ pocket_id_hostname }}"
+      VIRTUAL_PORT: "1411"
+      ACME_HOST: "{{ pocket_id_hostname }}"
+      LETSENCRYPT_HOST: "{{ pocket_id_hostname }}"
+    expose:
+      - "1411"
+    volumes:
+      - ./data:/app/data
+      - ./encryption_key:/run/secrets/pocket_id_encryption_key:ro
+    networks:
+      - webservers
+
+networks:
+  webservers:
+    external: true
+    name: webservers

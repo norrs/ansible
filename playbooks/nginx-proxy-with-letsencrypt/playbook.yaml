@@ -1,7 +1,65 @@
 ---
 - name: nginx proxy with letsencrypt
-  hosts: cloud
+  hosts: "{{ nginx_proxy_hosts | default('cloud') }}"
   tasks:
+    - name: Ensure webservers docker network exists
+      become: true
+      ansible.builtin.command: docker network inspect webservers
+      register: nginx_proxy_webservers_network
+      changed_when: false
+      failed_when: false
+
+    - name: Create webservers docker network
+      become: true
+      ansible.builtin.command: docker network create webservers
+      when: nginx_proxy_webservers_network.rc != 0
+
+    - name: "{{ nginx_proxy_service_dir | default('/service/nginx-proxy') }}"
+      become: true
+      ansible.builtin.file:
+        path: "{{ nginx_proxy_service_dir | default('/service/nginx-proxy') }}"
+        state: directory
+        owner: root
+        group: root
+        mode: '0755'
+
+    - name: "{{ nginx_proxy_vhost_dir | default('/service/nginx-proxy/vhost.d') }}"
+      become: true
+      ansible.builtin.file:
+        path: "{{ nginx_proxy_vhost_dir | default('/service/nginx-proxy/vhost.d') }}"
+        state: directory
+        owner: root
+        group: root
+        mode: '0755'
+      when: nginx_proxy_vhost_dir is defined
+
+    - name: "{{ nginx_proxy_nsupdate_key_path | default('/service/nginx-proxy/nsupdate.key') }}"
+      become: true
+      ansible.builtin.template:
+        src: templates/nsupdate.key.j2
+        dest: "{{ nginx_proxy_nsupdate_key_path | default('/service/nginx-proxy/nsupdate.key') }}"
+        owner: root
+        group: root
+        mode: '0640'
+      vars:
+        keyid: "acme-dalaran.norrs.no."
+        algorithm: "hmac-sha256"
+        secret: "{{ lookup('community.general.onepassword', 'bind9/named.conf.acme-dalaran', field='TSIG_SECRET', vault='infra.norrs') }}"
+      when: nginx_proxy_acme_challenge | default('HTTP-01') == 'DNS-01'
+      register: nginx_proxy_nsupdate_key
+
+    - name: "{{ nginx_proxy_acme_env_file | default('/service/nginx-proxy/acme-companion.env') }}"
+      become: true
+      vars:
+        DEFAULT_EMAIL: "{{ lookup('community.general.onepassword', 'nginx-proxy-with-letsencrypt.default_email', field='notesPlain', vault='infra.norrs') }}"
+      ansible.builtin.template:
+        src: templates/acme-companion.env.j2
+        dest: "{{ nginx_proxy_acme_env_file | default('/service/nginx-proxy/acme-companion.env') }}"
+        owner: root
+        group: root
+        mode: '0640'
+      register: nginx_proxy_acme_env
+
     - name: "/etc/systemd/system/nginx-proxy.service"
       become: true
       ansible.builtin.template:
@@ -10,35 +68,40 @@
         owner: root
         group: root
         mode: '0644'
-      when: "ansible_service_mgr == 'systemd'"
-      register: reload_systemd
+      when: ansible_facts['service_mgr'] == 'systemd'
+      register: nginx_proxy_unit
 
     - name: "/etc/systemd/system/acme-companion.service"
       become: true
-      vars:
-        DEFAULT_EMAIL: "{{ lookup('community.general.onepassword', 'nginx-proxy-with-letsencrypt.default_email', field='notesPlain', vault='infra.norrs') }}"
       ansible.builtin.template:
         src: files/acme-companion.service
         dest: /etc/systemd/system/acme-companion.service
         owner: root
         group: root
         mode: '0644'
-      when: "ansible_service_mgr == 'systemd'"
-      register: reload_systemd
+      when: ansible_facts['service_mgr'] == 'systemd'
+      register: acme_companion_unit
 
 
     - name: Just force systemd to reread configs (2.4 and above)
       become: true
       ansible.builtin.systemd:
         daemon_reload: true
-      when: reload_systemd.changed
+      when: nginx_proxy_unit.changed or acme_companion_unit.changed
 
-    - name: Make sure a acme-companion unit is running
+    - name: Restart nginx-proxy when unit changed
       become: true
       ansible.builtin.systemd:
-        state: started
-        enabled: true
+        state: restarted
+        name: nginx-proxy
+      when: nginx_proxy_unit.changed
+
+    - name: Restart acme-companion when config changed
+      become: true
+      ansible.builtin.systemd:
+        state: restarted
         name: acme-companion
+      when: acme_companion_unit.changed or (nginx_proxy_nsupdate_key is defined and nginx_proxy_nsupdate_key.changed) or (nginx_proxy_acme_env is defined and nginx_proxy_acme_env.changed)
 
     - name: Make sure a nginx-proxy unit is running
       become: true
@@ -46,3 +109,10 @@
         state: started
         enabled: true
         name: nginx-proxy
+
+    - name: Make sure a acme-companion unit is running
+      become: true
+      ansible.builtin.systemd:
+        state: started
+        enabled: true
+        name: acme-companion

@@ -2,3 +2,4 @@ collections
 galaxy_cache
 galaxy_token
 .idea
+tmp/

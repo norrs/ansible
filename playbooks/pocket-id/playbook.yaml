@@ -1,0 +1,96 @@
+---
+- name: pocket-id
+  hosts: "{{ pocket_id_hosts | default('dalaran') }}"
+  vars:
+    pocket_id_service_dir: /service/pocket-id
+    # Required private key: pocket_id_hostname. See private/group_vars/dalaran.yaml.
+  tasks:
+    - name: "{{ pocket_id_service_dir }}"
+      become: true
+      ansible.builtin.file:
+        path: "{{ pocket_id_service_dir }}"
+        state: directory
+        owner: root
+        group: root
+        mode: '0755'
+
+    - name: "{{ pocket_id_service_dir }}/data"
+      become: true
+      ansible.builtin.file:
+        path: "{{ pocket_id_service_dir }}/data"
+        state: directory
+        owner: "1000"
+        group: "1000"
+        mode: '0750'
+
+    - name: "{{ pocket_id_service_dir }}/encryption_key"
+      become: true
+      ansible.builtin.template:
+        src: templates/encryption_key.j2
+        dest: "{{ pocket_id_service_dir }}/encryption_key"
+        owner: "1000"
+        group: "1000"
+        mode: '0640'
+      vars:
+        pocket_id_encryption_key: "{{ lookup('community.general.onepassword', 'pocket-id', field='ENCRYPTION_KEY', vault='infra.norrs') }}"
+      register: pocket_id_encryption_key_file
+
+    - name: "{{ pocket_id_service_dir }}/.env"
+      become: true
+      ansible.builtin.template:
+        src: templates/env.j2
+        dest: "{{ pocket_id_service_dir }}/.env"
+        owner: root
+        group: root
+        mode: '0644'
+      register: pocket_id_env
+
+    - name: "{{ pocket_id_service_dir }}/compose.yaml"
+      become: true
+      ansible.builtin.template:
+        src: files/pocket-id/compose.yaml
+        dest: "{{ pocket_id_service_dir }}/compose.yaml"
+        owner: root
+        group: root
+        mode: '0644'
+      register: pocket_id_compose
+
+    - name: "/service/nginx-proxy/vhost.d/{{ pocket_id_hostname }}"
+      become: true
+      ansible.builtin.copy:
+        src: files/pocket-id/nginx-vhost.conf
+        dest: "/service/nginx-proxy/vhost.d/{{ pocket_id_hostname }}"
+        owner: root
+        group: root
+        mode: '0644'
+
+    - name: /etc/systemd/system/pocket-id.service
+      become: true
+      ansible.builtin.template:
+        src: files/pocket-id.service
+        dest: /etc/systemd/system/pocket-id.service
+        owner: root
+        group: root
+        mode: '0644'
+      when: ansible_facts['service_mgr'] == 'systemd'
+      register: pocket_id_unit
+
+    - name: Reload systemd
+      become: true
+      ansible.builtin.systemd:
+        daemon_reload: true
+      when: pocket_id_unit.changed
+
+    - name: Restart pocket-id when config changed
+      become: true
+      ansible.builtin.systemd:
+        state: restarted
+        name: pocket-id
+      when: pocket_id_unit.changed or pocket_id_compose.changed or pocket_id_env.changed or pocket_id_encryption_key_file.changed
+
+    - name: Make sure pocket-id is running
+      become: true
+      ansible.builtin.systemd:
+        state: started
+        enabled: true
+        name: pocket-id
