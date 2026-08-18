@@ -1,6 +1,9 @@
 ---
 - name: mailserver
   hosts: cloud
+  vars:
+    mailserver_service_account_default_op_vault: infra.norrs
+    mailserver_service_account_default_op_field: PASSWORD
   tasks:
 
     - name: "/opt/dms"
@@ -70,7 +73,7 @@
         owner: root
         group: root
         mode: '0644'
-      when: "ansible_service_mgr == 'systemd'"
+      when: ansible_facts['service_mgr'] == 'systemd'
       register: reload_systemd
 
     #- name: "/etc/systemd/system/webmail.service"
@@ -83,7 +86,7 @@
     #    owner: root
     #    group: root
     #    mode: '0644'
-    #  when: "ansible_service_mgr == 'systemd'"
+    #  when: ansible_facts['service_mgr'] == 'systemd'
     #  register: reload_systemd
 
     - name: Just force systemd to reread configs (2.4 and above)
@@ -105,3 +108,84 @@
         state: started
         enabled: true
         name: mailserver
+
+    - name: Check DMS service account 1Password credentials
+      ansible.builtin.assert:
+        that:
+          - lookup('community.general.onepassword', item.value.op_item, field=item.value.op_field | default(mailserver_service_account_default_op_field), vault=item.value.op_vault | default(mailserver_service_account_default_op_vault), errors='ignore') | default('', true) | length > 0
+        fail_msg: "Missing 1Password credential for mailserver service account '{{ item.key }}': item '{{ item.value.op_item }}', field '{{ item.value.op_field | default(mailserver_service_account_default_op_field) }}', vault '{{ item.value.op_vault | default(mailserver_service_account_default_op_vault) }}'."
+      loop: "{{ mailserver_service_accounts | default({}) | dict2items }}"
+      loop_control:
+        label: "{{ item.key }}"
+      when: mailserver_service_accounts | default({}) | length > 0
+
+    - name: Ensure DMS service accounts
+      become: true
+      ansible.builtin.shell:
+        cmd: |
+          set -euo pipefail
+
+          if docker exec -e MAIL_ACCOUNT mailserver sh -c '
+            setup email list 2>/dev/null | awk -v account="${MAIL_ACCOUNT}" "
+              BEGIN { account = tolower(account) }
+              tolower(\$1) == \"*\" && tolower(\$2) == account {
+                found = 1
+              }
+              END { exit found ? 0 : 1 }
+            "
+          '; then
+            exit 0
+          fi
+
+          docker exec mailserver setup email add "${MAIL_ACCOUNT}" "${MAIL_PASSWORD}"
+          echo changed
+        executable: /bin/bash
+      environment:
+        MAIL_ACCOUNT: "{{ item.value.address }}"
+        MAIL_PASSWORD: "{{ lookup('community.general.onepassword', item.value.op_item, field=item.value.op_field | default(mailserver_service_account_default_op_field), vault=item.value.op_vault | default(mailserver_service_account_default_op_vault)) | trim }}"
+      loop: "{{ mailserver_service_accounts | default({}) | dict2items }}"
+      loop_control:
+        label: "{{ item.key }}"
+      register: mailserver_service_account_results
+      changed_when: "'changed' in mailserver_service_account_results.stdout"
+      no_log: true
+      when: mailserver_service_accounts | default({}) | length > 0
+
+    - name: Ensure DMS service aliases
+      become: true
+      ansible.builtin.shell:
+        cmd: |
+          set -euo pipefail
+
+          if docker exec -e MAIL_ALIAS -e MAIL_RECIPIENT mailserver sh -c '
+            setup alias list 2>/dev/null | awk -v alias="${MAIL_ALIAS}" -v recipient="${MAIL_RECIPIENT}" "
+              BEGIN {
+                alias = tolower(alias)
+                recipient = tolower(recipient)
+              }
+              tolower(\$1) == \"*\" && tolower(\$2) == alias {
+                split(\$3, recipients, \",\")
+                for (i in recipients) {
+                  if (tolower(recipients[i]) == recipient) {
+                    found = 1
+                  }
+                }
+              }
+              END { exit found ? 0 : 1 }
+            "
+          '; then
+            exit 0
+          fi
+
+          docker exec mailserver setup alias add "${MAIL_ALIAS}" "${MAIL_RECIPIENT}"
+          echo changed
+        executable: /bin/bash
+      environment:
+        MAIL_ALIAS: "{{ item.1.address | default(item.1.alias) }}"
+        MAIL_RECIPIENT: "{{ item.1.recipient }}"
+      loop: "{{ mailserver_service_accounts | default({}) | dict2items | subelements('value.aliases', skip_missing=True) }}"
+      loop_control:
+        label: "{{ item.0.key }}"
+      register: mailserver_service_alias_results
+      changed_when: "'changed' in mailserver_service_alias_results.stdout"
+      when: mailserver_service_accounts | default({}) | length > 0

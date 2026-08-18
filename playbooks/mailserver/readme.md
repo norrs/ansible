@@ -3,6 +3,50 @@
 * https://github.com/docker-mailserver/docker-mailserver
 * https://docker-mailserver.github.io/docker-mailserver/latest/
 
+## Service SMTP accounts and aliases
+
+The playbook can manage multiple SMTP service accounts and their delivery
+aliases through `mailserver_service_accounts`. Concrete account addresses,
+alias addresses, and recipients should live in private group vars, for example
+`private/group_vars/all.yaml`.
+
+Each service account is created with the DMS setup utility if it does not
+already exist:
+
+```
+docker exec mailserver setup email add <account-address>
+```
+
+Existing accounts and aliases are checked through `setup email list` and
+`setup alias list`, so the playbook does not depend on DMS internal config file
+paths for idempotency.
+
+The account password is read from 1Password. By default, the vault is
+`infra.norrs` and the field is `PASSWORD`; each account must provide `op_item`
+unless it overrides those defaults.
+The playbook preflights each configured 1Password credential and fails with the
+service account key, item, field, and vault when a credential is missing.
+
+Example structure:
+
+```yaml
+mailserver_service_accounts:
+  service-account-name:
+    address: account@example.com
+    op_item: mailserver/service-account-name
+    aliases:
+      - name: service
+        address: service@example.com
+        recipient: recipient@example.com
+      - name: other-service
+        address: other-service@example.com
+        recipient: recipient@example.com
+```
+
+This means services can authenticate with a shared service account, send with
+their own `SMTP_FROM` address while `SPOOF_PROTECTION` is disabled, and receive
+replies through the configured aliases.
+
 ## Custom: Ensure source IP addresses is the one specified by SPF
 
 Bind outgoing SMTP connections to specific IP-addresses to ensure MX records are aligned with
