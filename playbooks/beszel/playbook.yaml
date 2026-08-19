@@ -8,6 +8,10 @@
     beszel_tinyauth_op_item: tinyauth
     beszel_smtp_default_op_vault: infra.norrs
     beszel_smtp_default_op_field: PASSWORD
+    beszel_pushover_op_vault: infra.norrs
+    beszel_pushover_op_item: beszel/pushover
+    beszel_pushover_user_key_field: user_key
+    beszel_pushover_api_token_field: api_token
     # Required private key: beszel_hostname. See private/group_vars/dalaran.yaml.
   tasks:
     - name: Check Beszel SMTP service account mapping
@@ -24,6 +28,18 @@
           - lookup('community.general.onepassword', beszel_smtp_op_item, field=beszel_smtp_op_field | default(beszel_smtp_default_op_field), vault=beszel_smtp_op_vault | default(beszel_smtp_default_op_vault), errors='ignore') | default('', true) | length > 0
         fail_msg: "Beszel SMTP is enabled, but the selected service account, alias, or 1Password credential is missing. Add it to mailserver_service_accounts, then run the mailserver playbook before Beszel."
       when: beszel_smtp_enabled | default(false) | bool
+
+    - name: Check Beszel Pushover configuration
+      ansible.builtin.assert:
+        that:
+          - beszel_pushover_devices is defined
+          - beszel_pushover_devices | length > 0
+          - beszel_pushover_priority | default(0) | int >= -1
+          - beszel_pushover_priority | default(0) | int <= 1
+          - lookup('community.general.onepassword', beszel_pushover_op_item, field=beszel_pushover_user_key_field, vault=beszel_pushover_op_vault, errors='ignore') | default('', true) | length > 0
+          - lookup('community.general.onepassword', beszel_pushover_op_item, field=beszel_pushover_api_token_field, vault=beszel_pushover_op_vault, errors='ignore') | default('', true) | length > 0
+        fail_msg: "Beszel Pushover is enabled, but devices, priority, or the 1Password item 'beszel/pushover' with fields 'user_key' and 'api_token' is missing or invalid."
+      when: beszel_pushover_enabled | default(false) | bool
 
     - name: "{{ beszel_service_dir }}"
       become: true
@@ -103,14 +119,14 @@
       ansible.builtin.package:
         name: sqlite3
         state: present
-      when: (beszel_smtp_enabled | default(false) | bool) or (beszel_tinyauth_client_id | length > 0 and beszel_tinyauth_client_secret | length > 0)
+      when: (beszel_smtp_enabled | default(false) | bool) or (beszel_pushover_enabled | default(false) | bool) or (beszel_tinyauth_client_id | length > 0 and beszel_tinyauth_client_secret | length > 0)
 
     - name: Wait for Beszel PocketBase database
       become: true
       ansible.builtin.wait_for:
         path: "{{ beszel_database_path }}"
         timeout: 60
-      when: (beszel_smtp_enabled | default(false) | bool) or (beszel_tinyauth_client_id | length > 0 and beszel_tinyauth_client_secret | length > 0)
+      when: (beszel_smtp_enabled | default(false) | bool) or (beszel_pushover_enabled | default(false) | bool) or (beszel_tinyauth_client_id | length > 0 and beszel_tinyauth_client_secret | length > 0)
 
     - name: Wait for Beszel PocketBase settings
       become: true
@@ -124,7 +140,7 @@
       retries: 12
       delay: 5
       until: beszel_settings_row.rc == 0 and (beszel_settings_row.stdout | trim) == '1'
-      when: beszel_smtp_enabled | default(false) | bool
+      when: (beszel_smtp_enabled | default(false) | bool) or (beszel_pushover_enabled | default(false) | bool)
 
     - name: Check Beszel SMTP config
       become: true
@@ -253,7 +269,146 @@
       retries: 12
       delay: 5
       until: beszel_users_collection.rc == 0 and (beszel_users_collection.stdout | trim) == '1'
-      when: beszel_tinyauth_client_id | length > 0 and beszel_tinyauth_client_secret | length > 0
+      when: (beszel_pushover_enabled | default(false) | bool) or (beszel_tinyauth_client_id | length > 0 and beszel_tinyauth_client_secret | length > 0)
+
+    - name: Wait for Beszel user settings collection
+      become: true
+      ansible.builtin.command:
+        argv:
+          - sqlite3
+          - "{{ beszel_database_path }}"
+          - "SELECT count(*) FROM _collections WHERE name = 'user_settings';"
+      register: beszel_user_settings_collection
+      changed_when: false
+      retries: 12
+      delay: 5
+      until: beszel_user_settings_collection.rc == 0 and (beszel_user_settings_collection.stdout | trim) == '1'
+      when: beszel_pushover_enabled | default(false) | bool
+
+    - name: Read Beszel Pushover credentials from 1Password
+      ansible.builtin.set_fact:
+        beszel_pushover_user_key: "{{ lookup('community.general.onepassword', beszel_pushover_op_item, field=beszel_pushover_user_key_field, vault=beszel_pushover_op_vault) | trim }}"
+        beszel_pushover_api_token: "{{ lookup('community.general.onepassword', beszel_pushover_op_item, field=beszel_pushover_api_token_field, vault=beszel_pushover_op_vault) | trim }}"
+      no_log: true
+      when: beszel_pushover_enabled | default(false) | bool
+
+    - name: Build Beszel Pushover notification URL
+      ansible.builtin.set_fact:
+        beszel_pushover_url: "pushover://shoutrrr:{{ beszel_pushover_api_token }}@{{ beszel_pushover_user_key }}/?devices={{ beszel_pushover_devices | join(',') }}{% if beszel_pushover_priority is defined %}&priority={{ beszel_pushover_priority | int }}{% endif %}"
+      no_log: true
+      when: beszel_pushover_enabled | default(false) | bool
+
+    - name: Find Beszel Pushover notification user
+      become: true
+      ansible.builtin.command:
+        argv:
+          - sqlite3
+          - "{{ beszel_database_path }}"
+      args:
+        stdin: |
+          SELECT id
+          FROM users
+          WHERE COALESCE(role, 'user') != 'readonly'
+          {% if beszel_pushover_user_email is defined and beszel_pushover_user_email | length > 0 %}
+            AND lower(email) = lower('{{ beszel_pushover_user_email | replace("'", "''") }}')
+          {% endif %}
+          ORDER BY CASE role WHEN 'admin' THEN 0 ELSE 1 END, created
+          LIMIT 1;
+      register: beszel_pushover_user
+      changed_when: false
+      when: beszel_pushover_enabled | default(false) | bool
+
+    - name: Skip Beszel Pushover config until a notification user exists
+      ansible.builtin.debug:
+        msg: "Skipping Beszel Pushover config: no matching non-readonly Beszel user exists yet. Log in to Beszel once, or set beszel_pushover_user_email to an existing user."
+      when:
+        - beszel_pushover_enabled | default(false) | bool
+        - beszel_pushover_user.stdout | trim | length == 0
+
+    - name: Ensure Beszel Pushover user settings record
+      become: true
+      ansible.builtin.command:
+        argv:
+          - sqlite3
+          - "{{ beszel_database_path }}"
+      args:
+        stdin: |
+          INSERT OR IGNORE INTO user_settings (id, user, settings, created, updated)
+          VALUES (
+            '{{ lookup("community.general.random_string", length=15, override_all="abcdefghijklmnopqrstuvwxyz0123456789") }}',
+            '{{ beszel_pushover_user.stdout | trim }}',
+            json('{"chartTime":"1h","emails":[],"webhooks":[]}'),
+            strftime('%Y-%m-%d %H:%M:%fZ', 'now'),
+            strftime('%Y-%m-%d %H:%M:%fZ', 'now')
+          );
+          SELECT changes();
+      register: beszel_pushover_user_settings
+      changed_when: (beszel_pushover_user_settings.stdout | trim) == '1'
+      when:
+        - beszel_pushover_enabled | default(false) | bool
+        - beszel_pushover_user.stdout | trim | length > 0
+
+    - name: Check Beszel Pushover notification URL
+      become: true
+      ansible.builtin.command:
+        argv:
+          - sqlite3
+          - "{{ beszel_database_path }}"
+      args:
+        stdin: |
+          WITH expected(url) AS (
+            VALUES('{{ beszel_pushover_url | replace("'", "''") }}')
+          )
+          SELECT CASE
+            WHEN EXISTS (
+              SELECT 1
+              FROM user_settings,
+                   json_each(COALESCE(json_extract(settings, '$.webhooks'), json('[]')))
+              WHERE user = '{{ beszel_pushover_user.stdout | trim }}'
+                AND value = (SELECT url FROM expected)
+            )
+            THEN 0
+            ELSE 1
+          END;
+      register: beszel_pushover_config_needed
+      changed_when: false
+      when:
+        - beszel_pushover_enabled | default(false) | bool
+        - beszel_pushover_user.stdout | trim | length > 0
+      no_log: true
+
+    - name: Configure Beszel Pushover notification URL
+      become: true
+      ansible.builtin.command:
+        argv:
+          - sqlite3
+          - "{{ beszel_database_path }}"
+      args:
+        stdin: |
+          WITH expected(url) AS (
+            VALUES('{{ beszel_pushover_url | replace("'", "''") }}')
+          )
+          UPDATE user_settings
+          SET settings = json_set(
+                COALESCE(NULLIF(settings, ''), '{}'),
+                '$.webhooks',
+                json_insert(
+                  COALESCE(json_extract(settings, '$.webhooks'), json('[]')),
+                  '$[#]',
+                  (SELECT url FROM expected)
+                )
+              ),
+              updated = strftime('%Y-%m-%d %H:%M:%fZ', 'now')
+          WHERE user = '{{ beszel_pushover_user.stdout | trim }}'
+            AND NOT EXISTS (
+              SELECT 1
+              FROM json_each(COALESCE(json_extract(settings, '$.webhooks'), json('[]')))
+              WHERE value = (SELECT url FROM expected)
+            );
+      when:
+        - beszel_pushover_config_needed is not skipped
+        - (beszel_pushover_config_needed.stdout | trim) == '1'
+      no_log: true
 
     - name: Check Beszel OIDC provider config
       become: true
