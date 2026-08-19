@@ -6,8 +6,25 @@
     beszel_database_path: "{{ beszel_service_dir }}/beszel_data/data.db"
     beszel_tinyauth_op_vault: infra.norrs
     beszel_tinyauth_op_item: tinyauth
+    beszel_smtp_default_op_vault: infra.norrs
+    beszel_smtp_default_op_field: PASSWORD
     # Required private key: beszel_hostname. See private/group_vars/dalaran.yaml.
   tasks:
+    - name: Check Beszel SMTP service account mapping
+      ansible.builtin.assert:
+        that:
+          - beszel_smtp_service_account is defined
+          - beszel_smtp_alias is defined
+          - beszel_smtp_host is defined
+          - mailserver_service_accounts is defined
+          - beszel_smtp_service_account in mailserver_service_accounts
+          - (mailserver_service_accounts[beszel_smtp_service_account].aliases | default([]) | selectattr('name', 'equalto', beszel_smtp_alias) | list | length) == 1
+          - mailserver_service_accounts[beszel_smtp_service_account].address is defined
+          - mailserver_service_accounts[beszel_smtp_service_account].op_item is defined
+          - lookup('community.general.onepassword', beszel_smtp_op_item, field=beszel_smtp_op_field | default(beszel_smtp_default_op_field), vault=beszel_smtp_op_vault | default(beszel_smtp_default_op_vault), errors='ignore') | default('', true) | length > 0
+        fail_msg: "Beszel SMTP is enabled, but the selected service account, alias, or 1Password credential is missing. Add it to mailserver_service_accounts, then run the mailserver playbook before Beszel."
+      when: beszel_smtp_enabled | default(false) | bool
+
     - name: "{{ beszel_service_dir }}"
       become: true
       ansible.builtin.file:
@@ -86,14 +103,143 @@
       ansible.builtin.package:
         name: sqlite3
         state: present
-      when: beszel_tinyauth_client_id | length > 0 and beszel_tinyauth_client_secret | length > 0
+      when: (beszel_smtp_enabled | default(false) | bool) or (beszel_tinyauth_client_id | length > 0 and beszel_tinyauth_client_secret | length > 0)
 
     - name: Wait for Beszel PocketBase database
       become: true
       ansible.builtin.wait_for:
         path: "{{ beszel_database_path }}"
         timeout: 60
-      when: beszel_tinyauth_client_id | length > 0 and beszel_tinyauth_client_secret | length > 0
+      when: (beszel_smtp_enabled | default(false) | bool) or (beszel_tinyauth_client_id | length > 0 and beszel_tinyauth_client_secret | length > 0)
+
+    - name: Wait for Beszel PocketBase settings
+      become: true
+      ansible.builtin.command:
+        argv:
+          - sqlite3
+          - "{{ beszel_database_path }}"
+          - "SELECT count(*) FROM _params WHERE id = 'settings';"
+      register: beszel_settings_row
+      changed_when: false
+      retries: 12
+      delay: 5
+      until: beszel_settings_row.rc == 0 and (beszel_settings_row.stdout | trim) == '1'
+      when: beszel_smtp_enabled | default(false) | bool
+
+    - name: Check Beszel SMTP config
+      become: true
+      ansible.builtin.command:
+        argv:
+          - sqlite3
+          - "{{ beszel_database_path }}"
+      args:
+        stdin: |
+          WITH expected(raw) AS (
+            VALUES(json('{{ {
+              "smtp": {
+                "enabled": true,
+                "host": beszel_smtp_host,
+                "port": beszel_smtp_port | default(465) | int,
+                "username": beszel_smtp_user,
+                "password": lookup("community.general.onepassword", beszel_smtp_op_item, field=beszel_smtp_op_field | default(beszel_smtp_default_op_field), vault=beszel_smtp_op_vault | default(beszel_smtp_default_op_vault)) | trim,
+                "authMethod": beszel_smtp_auth_method | default("PLAIN"),
+                "tls": beszel_smtp_tls | default(true) | bool,
+                "localName": beszel_smtp_local_name | default("")
+              },
+              "meta": {
+                "senderName": beszel_smtp_sender_name | default("Beszel"),
+                "senderAddress": beszel_smtp_from
+              }
+            } | to_json | replace("'", "''") }}'))
+          )
+          SELECT CASE
+            WHEN NOT EXISTS (SELECT 1 FROM _params WHERE id = 'settings') THEN 'missing'
+            WHEN (SELECT json_valid(value) FROM _params WHERE id = 'settings') = 0 THEN 'not-json'
+            WHEN EXISTS (
+              SELECT 1
+              FROM _params
+              WHERE id = 'settings'
+                AND json_extract(value, '$.smtp.enabled') = json_extract((SELECT raw FROM expected), '$.smtp.enabled')
+                AND json_extract(value, '$.smtp.host') = json_extract((SELECT raw FROM expected), '$.smtp.host')
+                AND json_extract(value, '$.smtp.port') = json_extract((SELECT raw FROM expected), '$.smtp.port')
+                AND json_extract(value, '$.smtp.username') = json_extract((SELECT raw FROM expected), '$.smtp.username')
+                AND json_extract(value, '$.smtp.password') = json_extract((SELECT raw FROM expected), '$.smtp.password')
+                AND json_extract(value, '$.smtp.authMethod') = json_extract((SELECT raw FROM expected), '$.smtp.authMethod')
+                AND json_extract(value, '$.smtp.tls') = json_extract((SELECT raw FROM expected), '$.smtp.tls')
+                AND json_extract(value, '$.smtp.localName') = json_extract((SELECT raw FROM expected), '$.smtp.localName')
+                AND json_extract(value, '$.meta.senderName') = json_extract((SELECT raw FROM expected), '$.meta.senderName')
+                AND json_extract(value, '$.meta.senderAddress') = json_extract((SELECT raw FROM expected), '$.meta.senderAddress')
+            )
+            THEN 'ok'
+            ELSE 'changed'
+          END;
+      register: beszel_smtp_config_needed
+      changed_when: false
+      failed_when: beszel_smtp_config_needed.rc != 0 or (beszel_smtp_config_needed.stdout | trim) in ['missing', 'not-json']
+      when: beszel_smtp_enabled | default(false) | bool
+      no_log: true
+
+    - name: Stop Beszel before PocketBase SMTP config update
+      become: true
+      ansible.builtin.systemd:
+        state: stopped
+        name: beszel
+      when:
+        - beszel_smtp_config_needed is not skipped
+        - (beszel_smtp_config_needed.stdout | trim) == 'changed'
+
+    - name: Configure Beszel PocketBase SMTP settings
+      become: true
+      ansible.builtin.command:
+        argv:
+          - sqlite3
+          - "{{ beszel_database_path }}"
+      args:
+        stdin: |
+          WITH expected(raw) AS (
+            VALUES(json('{{ {
+              "smtp": {
+                "enabled": true,
+                "host": beszel_smtp_host,
+                "port": beszel_smtp_port | default(465) | int,
+                "username": beszel_smtp_user,
+                "password": lookup("community.general.onepassword", beszel_smtp_op_item, field=beszel_smtp_op_field | default(beszel_smtp_default_op_field), vault=beszel_smtp_op_vault | default(beszel_smtp_default_op_vault)) | trim,
+                "authMethod": beszel_smtp_auth_method | default("PLAIN"),
+                "tls": beszel_smtp_tls | default(true) | bool,
+                "localName": beszel_smtp_local_name | default("")
+              },
+              "meta": {
+                "senderName": beszel_smtp_sender_name | default("Beszel"),
+                "senderAddress": beszel_smtp_from
+              }
+            } | to_json | replace("'", "''") }}'))
+          )
+          UPDATE _params
+          SET value = json_set(
+                value,
+                '$.smtp',
+                json(json_extract((SELECT raw FROM expected), '$.smtp')),
+                '$.meta.senderName',
+                json_extract((SELECT raw FROM expected), '$.meta.senderName'),
+                '$.meta.senderAddress',
+                json_extract((SELECT raw FROM expected), '$.meta.senderAddress')
+              ),
+              updated = strftime('%Y-%m-%d %H:%M:%fZ', 'now')
+          WHERE id = 'settings';
+      when:
+        - beszel_smtp_config_needed is not skipped
+        - (beszel_smtp_config_needed.stdout | trim) == 'changed'
+      no_log: true
+
+    - name: Start Beszel after PocketBase SMTP config update
+      become: true
+      ansible.builtin.systemd:
+        state: started
+        enabled: true
+        name: beszel
+      when:
+        - beszel_smtp_config_needed is not skipped
+        - (beszel_smtp_config_needed.stdout | trim) == 'changed'
 
     - name: Wait for Beszel users collection
       become: true
