@@ -1,0 +1,15 @@
+[Unit]
+Description=rtorrent-rutorrent service
+Requires=docker.service
+After=docker.service
+
+[Service]
+Restart=always
+WorkingDirectory={{ rtorrent_rutorrent_service_dir }}
+
+ExecStartPre=/bin/sleep 1
+ExecStart=/usr/bin/docker compose -f compose.yaml up --force-recreate
+ExecStop=/usr/bin/docker compose -f compose.yaml down
+
+[Install]
+WantedBy=multi-user.target

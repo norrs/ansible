@@ -37,6 +37,28 @@
   tags:
     - dalaran-nginx-proxy
 
+- name: "Dalaran - diun"
+  ansible.builtin.import_playbook: ../diun/playbook.yaml
+  vars:
+    diun_hosts: dalaran
+    diun_hostname: "{{ diun_hostnames[inventory_hostname] | default(inventory_hostname) }}"
+  tags:
+    - dalaran-diun
+
+- name: "Dalaran - rTorrent/ruTorrent"
+  ansible.builtin.import_playbook: ../rtorrent-rutorrent/playbook.yaml
+  vars:
+    rtorrent_rutorrent_hosts: dalaran
+  tags:
+    - dalaran-rtorrent-rutorrent
+
+- name: "Dalaran - samba-new"
+  ansible.builtin.import_playbook: ../samba-new/playbook.yaml
+  vars:
+    samba_new_hosts: dalaran
+  tags:
+    - dalaran-samba-new
+
 - name: "Dalaran - pocket-id"
   ansible.builtin.import_playbook: ../pocket-id/playbook.yaml
   vars:

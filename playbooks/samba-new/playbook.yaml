@@ -1,0 +1,131 @@
+---
+- name: samba-new
+  hosts: "{{ samba_new_hosts | default('all') }}"
+  tasks:
+    - name: Set Samba defaults
+      ansible.builtin.set_fact:
+        samba_new_service_dir: "{{ samba_new_service_dir | default('/service/samba-new/dalaran-smb') }}"
+        samba_new_image: "{{ samba_new_image | default('crazymax/samba') }}"
+        samba_new_container_name: "{{ samba_new_container_name | default('sambanew') }}"
+        samba_new_hostname: "{{ samba_new_hostname | default(inventory_hostname) }}"
+        samba_new_timezone: "{{ samba_new_timezone | default('Europe/Oslo') }}"
+        samba_new_log_level: "{{ samba_new_log_level | default(0) }}"
+        samba_new_avahi_enabled: "{{ samba_new_avahi_enabled | default(true) }}"
+        samba_new_wsdd2_enabled: "{{ samba_new_wsdd2_enabled | default(true) }}"
+        samba_new_wsdd2_netbios_name: "{{ samba_new_wsdd2_netbios_name | default(samba_new_hostname) }}"
+        samba_new_volumes: "{{ samba_new_volumes | default([]) }}"
+        samba_new_global: "{{ samba_new_global | default([]) }}"
+        samba_new_shares: "{{ samba_new_shares | default([]) }}"
+        samba_new_auth: "{{ samba_new_auth | default([]) }}"
+        samba_new_op_vault: "{{ samba_new_op_vault | default('infra.norrs') }}"
+        samba_new_op_item: "{{ samba_new_op_item | default('samba-new/dalaran') }}"
+
+    - name: Require Samba users, shares, and volumes
+      ansible.builtin.assert:
+        that:
+          - samba_new_auth | length > 0
+          - samba_new_shares | length > 0
+          - samba_new_volumes | length > 0
+        fail_msg: "Set samba_new_auth, samba_new_shares, and samba_new_volumes for this host."
+
+    - name: Validate Samba auth password fields
+      ansible.builtin.assert:
+        that:
+          - item.password_field is defined
+          - item.password_field | length > 0
+        fail_msg: "Every samba_new_auth entry needs a password_field for 1Password lookup."
+      loop: "{{ samba_new_auth }}"
+
+    - name: "{{ samba_new_service_dir }}"
+      become: true
+      ansible.builtin.file:
+        path: "{{ samba_new_service_dir }}"
+        state: directory
+        owner: root
+        group: root
+        mode: '0755'
+
+    - name: Create Samba service directories
+      become: true
+      ansible.builtin.file:
+        path: "{{ samba_new_service_dir }}/{{ item }}"
+        state: directory
+        owner: root
+        group: root
+        mode: "{{ '0700' if item == 'secrets' else '0755' }}"
+      loop:
+        - data
+        - secrets
+
+    - name: Render Samba password secret files
+      become: true
+      ansible.builtin.copy:
+        content: "{{ lookup('community.general.onepassword', samba_new_op_item, field=item.password_field, vault=samba_new_op_vault) | trim }}"
+        dest: "{{ samba_new_service_dir }}/secrets/{{ item.user }}_password"
+        owner: root
+        group: root
+        mode: '0600'
+      loop: "{{ samba_new_auth }}"
+      register: samba_new_secrets
+      no_log: true
+
+    - name: "{{ samba_new_service_dir }}/data/config.yml"
+      become: true
+      ansible.builtin.template:
+        src: files/samba-new/config.yml.j2
+        dest: "{{ samba_new_service_dir }}/data/config.yml"
+        owner: root
+        group: root
+        mode: '0640'
+      register: samba_new_config
+      no_log: true
+
+    - name: "{{ samba_new_service_dir }}/compose.yaml"
+      become: true
+      ansible.builtin.template:
+        src: files/samba-new/compose.yaml
+        dest: "{{ samba_new_service_dir }}/compose.yaml"
+        owner: root
+        group: root
+        mode: '0644'
+      register: samba_new_compose
+      no_log: true
+
+    - name: /etc/systemd/system/samba-new.service
+      become: true
+      ansible.builtin.template:
+        src: files/samba-new.service
+        dest: /etc/systemd/system/samba-new.service
+        owner: root
+        group: root
+        mode: '0644'
+      when: ansible_facts['service_mgr'] == 'systemd'
+      register: samba_new_unit
+
+    - name: Reload systemd
+      become: true
+      ansible.builtin.systemd:
+        daemon_reload: true
+      when: samba_new_unit.changed
+
+    - name: Restart Samba when config changed
+      become: true
+      ansible.builtin.systemd:
+        state: restarted
+        name: samba-new
+      when: >
+        not ansible_check_mode
+        and (
+          samba_new_unit.changed
+          or samba_new_config.changed
+          or samba_new_compose.changed
+          or samba_new_secrets.changed
+        )
+
+    - name: Make sure Samba is running
+      become: true
+      ansible.builtin.systemd:
+        state: started
+        enabled: true
+        name: samba-new
+      when: not ansible_check_mode

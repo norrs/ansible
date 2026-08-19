@@ -1,0 +1,180 @@
+---
+- name: diun
+  hosts: "{{ diun_hosts | default('all') }}"
+  tasks:
+    - name: Set Diun defaults
+      ansible.builtin.set_fact:
+        diun_service_dir: "{{ diun_service_dir | default('/service/diun') }}"
+        diun_image: "{{ diun_image | default('crazymax/diun:latest') }}"
+        diun_hostname: "{{ diun_hostname | default(inventory_hostname) }}"
+        diun_timezone: "{{ diun_timezone | default('Europe/Oslo') }}"
+        diun_log_level: "{{ diun_log_level | default('info') }}"
+        diun_log_json: "{{ diun_log_json | default('false') }}"
+        diun_watch_workers: "{{ diun_watch_workers | default(20) }}"
+        diun_watch_schedule: "{{ diun_watch_schedule | default('0 */6 * * *') }}"
+        diun_watch_jitter: "{{ diun_watch_jitter | default('30s') }}"
+        diun_watch_first_check_notif: "{{ diun_watch_first_check_notif | default(false) }}"
+        diun_docker_watch_by_default: "{{ diun_docker_watch_by_default | default(true) }}"
+        diun_docker_watch_stopped: "{{ diun_docker_watch_stopped | default(false) }}"
+        diun_discord_enabled: "{{ diun_discord_enabled | default(false) }}"
+        diun_discord_render_embeds: "{{ diun_discord_render_embeds | default(true) }}"
+        diun_discord_render_fields: "{{ diun_discord_render_fields | default(true) }}"
+        diun_discord_timeout: "{{ diun_discord_timeout | default('10s') }}"
+        diun_pushover_enabled: "{{ diun_pushover_enabled | default(false) }}"
+        diun_pushover_priority: "{{ diun_pushover_priority | default(0) }}"
+        diun_pushover_sound: "{{ diun_pushover_sound | default('none') }}"
+        diun_pushover_timeout: "{{ diun_pushover_timeout | default('10s') }}"
+        diun_notifications_op_vault: "{{ diun_notifications_op_vault | default('infra.norrs') }}"
+        diun_notifications_op_item: "{{ diun_notifications_op_item | default('diun/notifications') }}"
+        diun_discord_webhook_url_field: "{{ diun_discord_webhook_url_field | default('discord_webhook_url') }}"
+        diun_pushover_token_field: "{{ diun_pushover_token_field | default('pushover_token') }}"
+        diun_pushover_recipient_field: "{{ diun_pushover_recipient_field | default('pushover_recipient') }}"
+
+    - name: Initialize Diun notification secrets
+      ansible.builtin.set_fact:
+        diun_discord_webhook_url: ""
+        diun_pushover_token: ""
+        diun_pushover_recipient: ""
+
+    - name: Read Diun Discord secret from 1Password
+      ansible.builtin.set_fact:
+        diun_discord_webhook_url: "{{ lookup('community.general.onepassword', diun_notifications_op_item, field=diun_discord_webhook_url_field, vault=diun_notifications_op_vault, errors='ignore') | default('', true) | trim }}"
+      no_log: true
+      when: diun_discord_enabled | bool
+
+    - name: Read Diun Pushover secrets from 1Password
+      ansible.builtin.set_fact:
+        diun_pushover_token: "{{ lookup('community.general.onepassword', diun_notifications_op_item, field=diun_pushover_token_field, vault=diun_notifications_op_vault, errors='ignore') | default('', true) | trim }}"
+        diun_pushover_recipient: "{{ lookup('community.general.onepassword', diun_notifications_op_item, field=diun_pushover_recipient_field, vault=diun_notifications_op_vault, errors='ignore') | default('', true) | trim }}"
+      no_log: true
+      when: diun_pushover_enabled | bool
+
+    - name: Set missing Diun notification field names
+      ansible.builtin.set_fact:
+        diun_missing_notification_fields: >-
+          {{
+            []
+            + ([diun_discord_webhook_url_field] if (diun_discord_enabled | bool) and diun_discord_webhook_url | length == 0 else [])
+            + ([diun_pushover_token_field] if (diun_pushover_enabled | bool) and diun_pushover_token | length == 0 else [])
+            + ([diun_pushover_recipient_field] if (diun_pushover_enabled | bool) and diun_pushover_recipient | length == 0 else [])
+          }}
+
+    - name: Validate Diun notification secrets
+      ansible.builtin.assert:
+        that:
+          - diun_missing_notification_fields | length == 0
+        fail_msg: "Missing required Diun notification fields in 1Password item '{{ diun_notifications_op_item }}' / vault '{{ diun_notifications_op_vault }}': {{ diun_missing_notification_fields | join(', ') }}."
+
+    - name: "{{ diun_service_dir }}"
+      become: true
+      ansible.builtin.file:
+        path: "{{ diun_service_dir }}"
+        state: directory
+        owner: root
+        group: root
+        mode: '0755'
+
+    - name: Create Diun service directories
+      become: true
+      ansible.builtin.file:
+        path: "{{ diun_service_dir }}/{{ item }}"
+        state: directory
+        owner: root
+        group: root
+        mode: "{{ '0700' if item == 'secrets' else '0755' }}"
+      loop:
+        - data
+        - secrets
+
+    - name: "{{ diun_service_dir }}/secrets/discord_webhook_url"
+      become: true
+      ansible.builtin.copy:
+        content: "{{ diun_discord_webhook_url }}"
+        dest: "{{ diun_service_dir }}/secrets/discord_webhook_url"
+        owner: root
+        group: root
+        mode: '0600'
+      register: diun_discord_secret
+      no_log: true
+      when: diun_discord_enabled | bool
+
+    - name: "{{ diun_service_dir }}/secrets/pushover_token"
+      become: true
+      ansible.builtin.copy:
+        content: "{{ diun_pushover_token }}"
+        dest: "{{ diun_service_dir }}/secrets/pushover_token"
+        owner: root
+        group: root
+        mode: '0600'
+      register: diun_pushover_token_secret
+      no_log: true
+      when: diun_pushover_enabled | bool
+
+    - name: "{{ diun_service_dir }}/secrets/pushover_recipient"
+      become: true
+      ansible.builtin.copy:
+        content: "{{ diun_pushover_recipient }}"
+        dest: "{{ diun_service_dir }}/secrets/pushover_recipient"
+        owner: root
+        group: root
+        mode: '0600'
+      register: diun_pushover_recipient_secret
+      no_log: true
+      when: diun_pushover_enabled | bool
+
+    - name: "{{ diun_service_dir }}/diun.yml"
+      become: true
+      ansible.builtin.template:
+        src: files/diun/diun.yml.j2
+        dest: "{{ diun_service_dir }}/diun.yml"
+        owner: root
+        group: root
+        mode: '0644'
+      register: diun_config
+
+    - name: "{{ diun_service_dir }}/compose.yaml"
+      become: true
+      ansible.builtin.template:
+        src: files/diun/compose.yaml
+        dest: "{{ diun_service_dir }}/compose.yaml"
+        owner: root
+        group: root
+        mode: '0644'
+      register: diun_compose
+
+    - name: /etc/systemd/system/diun.service
+      become: true
+      ansible.builtin.template:
+        src: files/diun.service
+        dest: /etc/systemd/system/diun.service
+        owner: root
+        group: root
+        mode: '0644'
+      when: ansible_facts['service_mgr'] == 'systemd'
+      register: diun_unit
+
+    - name: Reload systemd
+      become: true
+      ansible.builtin.systemd:
+        daemon_reload: true
+      when: diun_unit.changed
+
+    - name: Restart Diun when config changed
+      become: true
+      ansible.builtin.systemd:
+        state: restarted
+        name: diun
+      when: >
+        diun_unit.changed
+        or diun_config.changed
+        or diun_compose.changed
+        or (diun_discord_secret is defined and diun_discord_secret.changed)
+        or (diun_pushover_token_secret is defined and diun_pushover_token_secret.changed)
+        or (diun_pushover_recipient_secret is defined and diun_pushover_recipient_secret.changed)
+
+    - name: Make sure Diun is running
+      become: true
+      ansible.builtin.systemd:
+        state: started
+        enabled: true
+        name: diun

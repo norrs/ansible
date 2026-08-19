@@ -13,6 +13,13 @@
   tags:
     - diablo-wireguard
 
+- import_playbook: ../diun/playbook.yaml
+  vars:
+    diun_hosts: cloud
+    diun_hostname: "{{ diun_hostnames[inventory_hostname] | default(inventory_hostname) }}"
+  tags:
+    - diablo-diun
+
 - name: Bootstrap
   hosts: cloud
   tags:

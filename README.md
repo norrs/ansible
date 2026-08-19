@@ -54,7 +54,10 @@ Check facts:
 
 - [playbooks/bind/readme.md](./playbooks/bind/readme.md)
 - [playbooks/dalaran/readme.md](./playbooks/dalaran/readme.md)
+- [playbooks/diun/readme.md](./playbooks/diun/readme.md)
 - [playbooks/mailserver/readme.md](./playbooks/mailserver/readme.md)
+- [playbooks/rtorrent-rutorrent/readme.md](./playbooks/rtorrent-rutorrent/readme.md)
+- [playbooks/samba-new/readme.md](./playbooks/samba-new/readme.md)
 - [playbooks/wireguard-client/readme.md](./playbooks/wireguard-client/readme.md)
 - [playbooks/webmail/readme.md](./playbooks/webmail/readme.md)
 - [private/README.md](https://github.com/norrs/ansible-private/blob/main/README.md)

@@ -1,0 +1,23 @@
+auth:
+{% for user in samba_new_auth %}
+  - user: {{ user.user }}
+    group: {{ user.group }}
+    uid: {{ user.uid }}
+    gid: {{ user.gid }}
+    password_file: /run/secrets/{{ user.user }}_password
+{% endfor %}
+
+global:
+{% for option in samba_new_global %}
+  - "{{ option }}"
+{% endfor %}
+
+share:
+{% for share in samba_new_shares %}
+  - name: {{ share.name }}
+{% for key, value in share.items() %}
+{% if key != 'name' %}
+    {{ key }}: {{ value }}
+{% endif %}
+{% endfor %}
+{% endfor %}

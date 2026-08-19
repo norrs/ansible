@@ -1,0 +1,263 @@
+---
+- name: rtorrent-rutorrent
+  hosts: "{{ rtorrent_rutorrent_hosts | default('all') }}"
+  tasks:
+    - name: Set rTorrent/ruTorrent defaults
+      ansible.builtin.set_fact:
+        rtorrent_rutorrent_service_dir: "{{ rtorrent_rutorrent_service_dir | default('/service/rtorrent-rutorrent') }}"
+        rtorrent_rutorrent_image: "{{ rtorrent_rutorrent_image | default('crazymax/rtorrent-rutorrent:latest') }}"
+        rtorrent_rutorrent_geoip_image: "{{ rtorrent_rutorrent_geoip_image | default('crazymax/geoip-updater:latest') }}"
+        rtorrent_rutorrent_logs_image: "{{ rtorrent_rutorrent_logs_image | default('bash') }}"
+        rtorrent_rutorrent_network_name: "{{ rtorrent_rutorrent_network_name | default('rtorrent-rutorrent') }}"
+        rtorrent_rutorrent_web_network_name: "{{ rtorrent_rutorrent_web_network_name | default('webservers') }}"
+        rtorrent_rutorrent_web_hostname: "{{ rtorrent_rutorrent_web_hostname | default('') }}"
+        rtorrent_rutorrent_web_aliases: "{{ rtorrent_rutorrent_web_aliases | default([]) }}"
+        rtorrent_rutorrent_tinyauth_enabled: "{{ rtorrent_rutorrent_tinyauth_enabled | default(false) }}"
+        rtorrent_rutorrent_tinyauth_internal_url: "{{ rtorrent_rutorrent_tinyauth_internal_url | default('http://tinyauth:3000') }}"
+        rtorrent_rutorrent_tinyauth_app_id: "{{ rtorrent_rutorrent_tinyauth_app_id | default('rutorrent') }}"
+        rtorrent_rutorrent_nginx_vhost_dir: "{{ rtorrent_rutorrent_nginx_vhost_dir | default('/service/nginx-proxy/vhost.d') }}"
+        rtorrent_rutorrent_publish_rutorrent_port: "{{ rtorrent_rutorrent_publish_rutorrent_port | default(true) }}"
+        rtorrent_rutorrent_timezone: "{{ rtorrent_rutorrent_timezone | default('Europe/Oslo') }}"
+        rtorrent_rutorrent_puid: "{{ rtorrent_rutorrent_puid | default(1000) }}"
+        rtorrent_rutorrent_pgid: "{{ rtorrent_rutorrent_pgid | default(1000) }}"
+        rtorrent_rutorrent_ports: "{{ rtorrent_rutorrent_ports | default({'dht': 6881, 'xmlrpc': 8000, 'rutorrent': 8080, 'webdav': 9000, 'incoming': 50000}) }}"
+        rtorrent_rutorrent_volumes: "{{ rtorrent_rutorrent_volumes | default([]) }}"
+        rtorrent_rutorrent_geoip_volume: "{{ rtorrent_rutorrent_geoip_volume | default('./data/geoip:/data') }}"
+        rtorrent_rutorrent_log_volume: "{{ rtorrent_rutorrent_log_volume | default('./data/rtorrent/log:/log') }}"
+        rtorrent_rutorrent_geoip_enabled: "{{ rtorrent_rutorrent_geoip_enabled | default(true) }}"
+        rtorrent_rutorrent_geoip_edition_ids: "{{ rtorrent_rutorrent_geoip_edition_ids | default('GeoLite2-City,GeoLite2-Country') }}"
+        rtorrent_rutorrent_geoip_download_path: "{{ rtorrent_rutorrent_geoip_download_path | default('/data') }}"
+        rtorrent_rutorrent_geoip_schedule: "{{ rtorrent_rutorrent_geoip_schedule | default('0 0 * * 0') }}"
+        rtorrent_rutorrent_geoip_log_level: "{{ rtorrent_rutorrent_geoip_log_level | default('info') }}"
+        rtorrent_rutorrent_geoip_log_json: "{{ rtorrent_rutorrent_geoip_log_json | default('false') }}"
+        rtorrent_rutorrent_geoip_op_vault: "{{ rtorrent_rutorrent_geoip_op_vault | default('infra.norrs') }}"
+        rtorrent_rutorrent_geoip_op_item: "{{ rtorrent_rutorrent_geoip_op_item | default('rtorrent-rutorrent/geoip-updater') }}"
+        rtorrent_rutorrent_geoip_license_key_field: "{{ rtorrent_rutorrent_geoip_license_key_field | default('license_key') }}"
+        rtorrent_rutorrent_env: "{{ rtorrent_rutorrent_env | default({}) }}"
+
+    - name: Set ruTorrent web hostnames
+      ansible.builtin.set_fact:
+        rtorrent_rutorrent_web_hostnames: "{{ ([rtorrent_rutorrent_web_hostname] + rtorrent_rutorrent_web_aliases) | reject('equalto', '') | unique | list }}"
+
+    - name: Validate ruTorrent TinyAuth proxy configuration
+      ansible.builtin.assert:
+        that:
+          - rtorrent_rutorrent_web_hostnames | length > 0
+        fail_msg: "Set rtorrent_rutorrent_web_hostname when rtorrent_rutorrent_tinyauth_enabled is true."
+      when: rtorrent_rutorrent_tinyauth_enabled | bool
+
+    - name: Initialize rTorrent/ruTorrent secrets
+      ansible.builtin.set_fact:
+        rtorrent_rutorrent_geoip_license_key: ""
+
+    - name: Read GeoIP license key from 1Password
+      ansible.builtin.set_fact:
+        rtorrent_rutorrent_geoip_license_key: "{{ lookup('community.general.onepassword', rtorrent_rutorrent_geoip_op_item, field=rtorrent_rutorrent_geoip_license_key_field, vault=rtorrent_rutorrent_geoip_op_vault, errors='ignore') | default('', true) | trim }}"
+      no_log: true
+      when: rtorrent_rutorrent_geoip_enabled | bool
+
+    - name: Validate GeoIP configuration
+      ansible.builtin.assert:
+        that:
+          - not (rtorrent_rutorrent_geoip_enabled | bool) or rtorrent_rutorrent_geoip_license_key | length > 0
+        fail_msg: "Missing GeoIP license key in 1Password item '{{ rtorrent_rutorrent_geoip_op_item }}' / vault '{{ rtorrent_rutorrent_geoip_op_vault }}', field '{{ rtorrent_rutorrent_geoip_license_key_field }}'."
+
+    - name: "{{ rtorrent_rutorrent_service_dir }}"
+      become: true
+      ansible.builtin.file:
+        path: "{{ rtorrent_rutorrent_service_dir }}"
+        state: directory
+        owner: root
+        group: root
+        mode: '0755'
+
+    - name: Create rTorrent/ruTorrent service directories
+      become: true
+      ansible.builtin.file:
+        path: "{{ rtorrent_rutorrent_service_dir }}/{{ item }}"
+        state: directory
+        owner: "{{ rtorrent_rutorrent_puid }}"
+        group: "{{ rtorrent_rutorrent_pgid }}"
+        mode: '0755'
+      loop:
+        - passwd
+
+    - name: Create empty rTorrent/ruTorrent htpasswd files
+      become: true
+      ansible.builtin.copy:
+        content: ""
+        dest: "{{ rtorrent_rutorrent_service_dir }}/passwd/{{ item }}"
+        owner: "{{ rtorrent_rutorrent_puid }}"
+        group: "{{ rtorrent_rutorrent_pgid }}"
+        mode: '0640'
+        force: false
+      loop:
+        - rpc.htpasswd
+        - rutorrent.htpasswd
+        - webdav.htpasswd
+
+    - name: Keep rTorrent/ruTorrent htpasswd ownership readable by the container
+      become: true
+      ansible.builtin.file:
+        path: "{{ rtorrent_rutorrent_service_dir }}/passwd/{{ item }}"
+        owner: "{{ rtorrent_rutorrent_puid }}"
+        group: "{{ rtorrent_rutorrent_pgid }}"
+        mode: '0640'
+      loop:
+        - rpc.htpasswd
+        - rutorrent.htpasswd
+        - webdav.htpasswd
+
+    - name: "{{ rtorrent_rutorrent_service_dir }}/.env"
+      become: true
+      ansible.builtin.template:
+        src: files/rtorrent-rutorrent/env.j2
+        dest: "{{ rtorrent_rutorrent_service_dir }}/.env"
+        owner: root
+        group: root
+        mode: '0644'
+      register: rtorrent_rutorrent_ports_env
+
+    - name: "{{ rtorrent_rutorrent_service_dir }}/rtorrent-rutorrent.env"
+      become: true
+      ansible.builtin.template:
+        src: files/rtorrent-rutorrent/rtorrent-rutorrent.env.j2
+        dest: "{{ rtorrent_rutorrent_service_dir }}/rtorrent-rutorrent.env"
+        owner: root
+        group: root
+        mode: '0644'
+      register: rtorrent_rutorrent_app_env
+
+    - name: "{{ rtorrent_rutorrent_service_dir }}/geoip-updater.env"
+      become: true
+      ansible.builtin.template:
+        src: files/rtorrent-rutorrent/geoip-updater.env.j2
+        dest: "{{ rtorrent_rutorrent_service_dir }}/geoip-updater.env"
+        owner: root
+        group: root
+        mode: '0640'
+      register: rtorrent_rutorrent_geoip_env
+      no_log: true
+      when: rtorrent_rutorrent_geoip_enabled | bool
+
+    - name: "{{ rtorrent_rutorrent_service_dir }}/compose.yaml"
+      become: true
+      ansible.builtin.template:
+        src: files/rtorrent-rutorrent/compose.yaml
+        dest: "{{ rtorrent_rutorrent_service_dir }}/compose.yaml"
+        owner: root
+        group: root
+        mode: '0644'
+      register: rtorrent_rutorrent_compose
+
+    - name: "{{ rtorrent_rutorrent_nginx_vhost_dir }}"
+      become: true
+      ansible.builtin.file:
+        path: "{{ rtorrent_rutorrent_nginx_vhost_dir }}"
+        state: directory
+        owner: root
+        group: root
+        mode: '0755'
+      when: rtorrent_rutorrent_tinyauth_enabled | bool
+
+    - name: Render ruTorrent nginx-proxy vhost snippets
+      become: true
+      ansible.builtin.template:
+        src: files/rtorrent-rutorrent/rutorrent-vhost.conf.j2
+        dest: "{{ rtorrent_rutorrent_nginx_vhost_dir }}/{{ item }}"
+        owner: root
+        group: root
+        mode: '0644'
+      loop: "{{ rtorrent_rutorrent_web_hostnames }}"
+      register: rtorrent_rutorrent_vhost
+      when: rtorrent_rutorrent_tinyauth_enabled | bool
+
+    - name: Render ruTorrent nginx-proxy location snippets
+      become: true
+      ansible.builtin.template:
+        src: files/rtorrent-rutorrent/rutorrent-location.conf.j2
+        dest: "{{ rtorrent_rutorrent_nginx_vhost_dir }}/{{ item }}_location"
+        owner: root
+        group: root
+        mode: '0644'
+      loop: "{{ rtorrent_rutorrent_web_hostnames }}"
+      register: rtorrent_rutorrent_vhost_location
+      when: rtorrent_rutorrent_tinyauth_enabled | bool
+
+    - name: /etc/systemd/system/rtorrent-rutorrent.service
+      become: true
+      ansible.builtin.template:
+        src: files/rtorrent-rutorrent.service
+        dest: /etc/systemd/system/rtorrent-rutorrent.service
+        owner: root
+        group: root
+        mode: '0644'
+      when: ansible_facts['service_mgr'] == 'systemd'
+      register: rtorrent_rutorrent_unit
+
+    - name: Reload systemd
+      become: true
+      ansible.builtin.systemd:
+        daemon_reload: true
+      when: rtorrent_rutorrent_unit.changed
+
+    - name: Restart rTorrent/ruTorrent when config changed
+      become: true
+      ansible.builtin.systemd:
+        state: restarted
+        name: rtorrent-rutorrent
+      when: >
+        not ansible_check_mode
+        and (
+          rtorrent_rutorrent_unit.changed
+          or rtorrent_rutorrent_ports_env.changed
+          or rtorrent_rutorrent_app_env.changed
+          or (rtorrent_rutorrent_geoip_env is defined and rtorrent_rutorrent_geoip_env.changed)
+          or rtorrent_rutorrent_compose.changed
+        )
+
+    - name: Test nginx-proxy config after ruTorrent vhost changes
+      become: true
+      ansible.builtin.command:
+        argv:
+          - docker
+          - exec
+          - nginx-proxy
+          - nginx
+          - -t
+      changed_when: false
+      when: >
+        not ansible_check_mode
+        and
+        rtorrent_rutorrent_tinyauth_enabled | bool
+        and (
+          (rtorrent_rutorrent_vhost is defined and rtorrent_rutorrent_vhost.changed)
+          or (rtorrent_rutorrent_vhost_location is defined and rtorrent_rutorrent_vhost_location.changed)
+        )
+
+    - name: Reload nginx-proxy config after ruTorrent vhost changes
+      become: true
+      ansible.builtin.command:
+        argv:
+          - docker
+          - exec
+          - nginx-proxy
+          - nginx
+          - -s
+          - reload
+      when: >
+        not ansible_check_mode
+        and
+        rtorrent_rutorrent_tinyauth_enabled | bool
+        and (
+          (rtorrent_rutorrent_vhost is defined and rtorrent_rutorrent_vhost.changed)
+          or (rtorrent_rutorrent_vhost_location is defined and rtorrent_rutorrent_vhost_location.changed)
+        )
+
+    - name: Make sure rTorrent/ruTorrent is running
+      become: true
+      ansible.builtin.systemd:
+        state: started
+        enabled: true
+        name: rtorrent-rutorrent
+      when: not ansible_check_mode

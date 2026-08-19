@@ -1,0 +1,30 @@
+watch:
+  workers: {{ diun_watch_workers }}
+  schedule: "{{ diun_watch_schedule }}"
+  jitter: "{{ diun_watch_jitter }}"
+  firstCheckNotif: {{ diun_watch_first_check_notif | bool | lower }}
+
+providers:
+  docker:
+    endpoint: "unix:///var/run/docker.sock"
+    watchByDefault: {{ diun_docker_watch_by_default | bool | lower }}
+    watchStopped: {{ diun_docker_watch_stopped | bool | lower }}
+
+{% if (diun_discord_enabled | bool) or (diun_pushover_enabled | bool) %}
+notif:
+{% if diun_discord_enabled | bool %}
+  discord:
+    webhookURLFile: /run/secrets/diun_discord_webhook_url
+    renderEmbeds: {{ diun_discord_render_embeds | bool | lower }}
+    renderFields: {{ diun_discord_render_fields | bool | lower }}
+    timeout: "{{ diun_discord_timeout }}"
+{% endif %}
+{% if diun_pushover_enabled | bool %}
+  pushover:
+    tokenFile: /run/secrets/diun_pushover_token
+    recipientFile: /run/secrets/diun_pushover_recipient
+    priority: {{ diun_pushover_priority }}
+    sound: "{{ diun_pushover_sound }}"
+    timeout: "{{ diun_pushover_timeout }}"
+{% endif %}
+{% endif %}

@@ -1,0 +1,26 @@
+name: samba
+
+services:
+  samba:
+    image: {{ samba_new_image }}
+    container_name: {{ samba_new_container_name }}
+    hostname: {{ samba_new_hostname }}
+    network_mode: host
+    cap_add:
+      - CAP_NET_ADMIN
+      - CAP_NET_RAW
+    volumes:
+{% for volume in samba_new_volumes %}
+      - "{{ volume }}"
+{% endfor %}
+      - "./data:/data"
+{% for user in samba_new_auth %}
+      - "./secrets/{{ user.user }}_password:/run/secrets/{{ user.user }}_password:ro"
+{% endfor %}
+    environment:
+      - "TZ={{ samba_new_timezone }}"
+      - "SAMBA_LOG_LEVEL={{ samba_new_log_level }}"
+      - "AVAHI_ENABLE={{ 1 if samba_new_avahi_enabled | bool else 0 }}"
+      - "WSDD2_ENABLE={{ 1 if samba_new_wsdd2_enabled | bool else 0 }}"
+      - "WSDD2_NETBIOS_NAME={{ samba_new_wsdd2_netbios_name }}"
+    restart: always

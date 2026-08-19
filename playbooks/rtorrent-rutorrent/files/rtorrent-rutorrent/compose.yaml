@@ -1,0 +1,84 @@
+services:
+{% if rtorrent_rutorrent_geoip_enabled | bool %}
+  geoip-updater:
+    image: {{ rtorrent_rutorrent_geoip_image }}
+    container_name: geoip-updater
+    networks:
+      - rtorrent-rutorrent
+    volumes:
+      - "{{ rtorrent_rutorrent_geoip_volume }}"
+    env_file:
+      - "./geoip-updater.env"
+    restart: always
+
+{% endif %}
+  rtorrent-rutorrent:
+    image: {{ rtorrent_rutorrent_image }}
+    container_name: rtorrent-rutorrent
+    expose:
+      - "${RT_DHT_PORT}/udp"
+      - "${XMLRPC_PORT}"
+      - "${RUTORRENT_PORT}"
+      - "${WEBDAV_PORT}"
+      - "${RT_INC_PORT}"
+    networks:
+      - rtorrent-rutorrent
+{% if rtorrent_rutorrent_tinyauth_enabled | bool %}
+      - webservers
+{% endif %}
+    ports:
+      - target: ${RT_DHT_PORT}
+        published: ${RT_DHT_PORT}
+        protocol: udp
+{% if rtorrent_rutorrent_publish_rutorrent_port | bool %}
+      - target: ${RUTORRENT_PORT}
+        published: ${RUTORRENT_PORT}
+        protocol: tcp
+{% endif %}
+      - target: ${WEBDAV_PORT}
+        published: ${WEBDAV_PORT}
+        protocol: tcp
+      - target: ${RT_INC_PORT}
+        published: ${RT_INC_PORT}
+        protocol: tcp
+{% if rtorrent_rutorrent_tinyauth_enabled | bool %}
+    environment:
+      VIRTUAL_HOST: "{{ rtorrent_rutorrent_web_hostnames | join(',') }}"
+      VIRTUAL_PORT: "${RUTORRENT_PORT}"
+      ACME_HOST: "{{ rtorrent_rutorrent_web_hostnames | join(',') }}"
+      LETSENCRYPT_HOST: "{{ rtorrent_rutorrent_web_hostnames | join(',') }}"
+{% endif %}
+    env_file:
+      - "rtorrent-rutorrent.env"
+      - ".env"
+    volumes:
+{% for volume in rtorrent_rutorrent_volumes %}
+      - "{{ volume }}"
+{% endfor %}
+      - "{{ rtorrent_rutorrent_service_dir }}/passwd:/passwd"
+    ulimits:
+      nproc: 65535
+      nofile:
+        soft: 32000
+        hard: 40000
+    restart: always
+
+  rtorrent-logs:
+    image: {{ rtorrent_rutorrent_logs_image }}
+    container_name: rtorrent-rutorrent-logs
+    command: bash -c 'tail -f /log/*.log'
+    network_mode: none
+    depends_on:
+      - rtorrent-rutorrent
+    volumes:
+      - "{{ rtorrent_rutorrent_log_volume }}"
+    restart: always
+
+networks:
+  rtorrent-rutorrent:
+    name: {{ rtorrent_rutorrent_network_name }}
+{% if rtorrent_rutorrent_tinyauth_enabled | bool %}
+  webservers:
+    external: true
+    name: {{ rtorrent_rutorrent_web_network_name }}
+{% endif %}

@@ -1,0 +1,31 @@
+services:
+  diun:
+    image: {{ diun_image }}
+    container_name: diun
+    hostname: "{{ diun_hostname }}"
+    command: serve
+    restart: always
+    volumes:
+      - ./data:/data
+      - ./diun.yml:/diun.yml:ro
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+{% if diun_discord_enabled | bool %}
+      - ./secrets/discord_webhook_url:/run/secrets/diun_discord_webhook_url:ro
+{% endif %}
+{% if diun_pushover_enabled | bool %}
+      - ./secrets/pushover_token:/run/secrets/diun_pushover_token:ro
+      - ./secrets/pushover_recipient:/run/secrets/diun_pushover_recipient:ro
+{% endif %}
+    environment:
+      TZ: "{{ diun_timezone }}"
+      LOG_LEVEL: "{{ diun_log_level }}"
+      LOG_JSON: "{{ diun_log_json }}"
+    healthcheck:
+      test:
+        - CMD
+        - diun
+        - healthcheck
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 60s
