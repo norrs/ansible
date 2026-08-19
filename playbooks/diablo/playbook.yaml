@@ -3,9 +3,27 @@
   vars:
     docker_hosts: cloud
 
+- import_playbook: ../wireguard-client/playbook.yaml
+  vars:
+    wireguard_client_hosts: cloud
+    wireguard_client_server_op_item: wireguard/dune/server/monitoring
+    wireguard_client_peer_op_item: wireguard/dune/peers/monitoring/diablo
+
 - name: Bootstrap
   hosts: cloud
   tasks:
+  - name: "Private hosts entries"
+    become: true
+    ansible.builtin.lineinfile:
+      path: /etc/hosts
+      regexp: "{{ item.regexp }}"
+      line: "{{ item.line }}"
+      owner: root
+      group: root
+      mode: '0644'
+    loop: "{{ diablo_hosts_entries | default([]) }}"
+    no_log: true
+
   - name: "/etc/network/interfaces.d/51-diablo"
     become: true
     ansible.builtin.copy:
@@ -32,6 +50,19 @@
       owner: root
       group: root
       mode: '0644'
+
+- import_playbook: ../beszel-agent/playbook.yaml
+  vars:
+    beszel_agent_hub_host: dalaran
+    beszel_agent_hub_hosts: dalaran
+    beszel_agent_hosts: cloud
+    beszel_agent_hub_url: "{{ diablo_beszel_agent_hub_url }}"
+    beszel_agent_system_name: "{{ diablo_beszel_agent_system_name }}"
+    beszel_agent_disable_ssh: true
+    beszel_agent_systemd_wants:
+      - wg-quick@wg-monitoring.service
+    beszel_agent_systemd_after:
+      - wg-quick@wg-monitoring.service
 
 - import_playbook: ../mailserver/playbook.yaml
 - import_playbook: ../nginx-proxy-with-letsencrypt/playbook.yaml

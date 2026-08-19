@@ -1,0 +1,112 @@
+---
+- name: wireguard-client
+  hosts: "{{ wireguard_client_hosts | default('all') }}"
+  vars:
+    wireguard_client_op_vault: infra.norrs
+    wireguard_client_interface: wg-monitoring
+    wireguard_client_persistent_keepalive_default: "25"
+  tasks:
+    - name: Require WireGuard 1Password item names
+      ansible.builtin.assert:
+        that:
+          - wireguard_client_server_op_item is defined
+          - wireguard_client_peer_op_item is defined
+          - wireguard_client_server_op_item | length > 0
+          - wireguard_client_peer_op_item | length > 0
+        fail_msg: "Set wireguard_client_server_op_item and wireguard_client_peer_op_item for this host."
+
+    - name: Load WireGuard server settings from 1Password
+      ansible.builtin.set_fact:
+        wireguard_client_endpoint_host: "{{ lookup('community.general.onepassword', wireguard_client_server_op_item, field='endpoint_host', vault=wireguard_client_op_vault, errors='ignore') | default('', true) | trim }}"
+        wireguard_client_endpoint_port: "{{ lookup('community.general.onepassword', wireguard_client_server_op_item, field='endpoint_port', vault=wireguard_client_op_vault, errors='ignore') | default('', true) | trim }}"
+        wireguard_client_server_public_key: "{{ lookup('community.general.onepassword', wireguard_client_server_op_item, field='server_public_key', vault=wireguard_client_op_vault, errors='ignore') | default('', true) | trim }}"
+
+    - name: Load WireGuard peer settings from 1Password
+      ansible.builtin.set_fact:
+        wireguard_client_peer_name: "{{ lookup('community.general.onepassword', wireguard_client_peer_op_item, field='peer_name', vault=wireguard_client_op_vault, errors='ignore') | default('', true) | trim }}"
+        wireguard_client_ipv4: "{{ lookup('community.general.onepassword', wireguard_client_peer_op_item, field='client_ipv4', vault=wireguard_client_op_vault, errors='ignore') | default('', true) | trim }}"
+        wireguard_client_ipv6: "{{ lookup('community.general.onepassword', wireguard_client_peer_op_item, field='client_ipv6', vault=wireguard_client_op_vault, errors='ignore') | default('', true) | trim }}"
+        wireguard_client_private_key: "{{ lookup('community.general.onepassword', wireguard_client_peer_op_item, field='client_private_key', vault=wireguard_client_op_vault, errors='ignore') | default('', true) | trim }}"
+        wireguard_client_preshared_key: "{{ lookup('community.general.onepassword', wireguard_client_peer_op_item, field='preshared_key', vault=wireguard_client_op_vault, errors='ignore') | default('', true) | trim }}"
+        wireguard_client_allowed_ips_raw: "{{ lookup('community.general.onepassword', wireguard_client_peer_op_item, field='allowed_ips', vault=wireguard_client_op_vault, errors='ignore') | default('', true) | trim }}"
+        wireguard_client_persistent_keepalive: "{{ lookup('community.general.onepassword', wireguard_client_peer_op_item, field='persistent_keepalive', vault=wireguard_client_op_vault, errors='ignore') | default(wireguard_client_persistent_keepalive_default, true) | trim }}"
+      no_log: true
+
+    - name: Set effective WireGuard addresses and routes
+      ansible.builtin.set_fact:
+        wireguard_client_ipv4_address: "{{ '' if wireguard_client_ipv4 | length == 0 else (wireguard_client_ipv4 if '/' in wireguard_client_ipv4 else wireguard_client_ipv4 ~ '/32') }}"
+        wireguard_client_ipv6_address: "{{ '' if wireguard_client_ipv6 | length == 0 else (wireguard_client_ipv6 if '/' in wireguard_client_ipv6 else wireguard_client_ipv6 ~ '/128') }}"
+        wireguard_client_allowed_ips: "{{ wireguard_client_allowed_ips_raw.split(',') | map('trim') | reject('equalto', '') | list }}"
+      no_log: true
+
+    - name: Set effective WireGuard address list
+      ansible.builtin.set_fact:
+        wireguard_client_addresses: "{{ [wireguard_client_ipv4_address, wireguard_client_ipv6_address] | reject('equalto', '') | list }}"
+      no_log: true
+
+    - name: Set missing WireGuard peer field names
+      ansible.builtin.set_fact:
+        wireguard_client_missing_peer_fields: >-
+          {{
+            []
+            + (['client_ipv4 or client_ipv6'] if wireguard_client_addresses | length == 0 else [])
+            + (['client_private_key'] if wireguard_client_private_key | length == 0 else [])
+            + (['preshared_key'] if wireguard_client_preshared_key | length == 0 else [])
+            + (['allowed_ips'] if wireguard_client_allowed_ips | length == 0 else [])
+            + (['persistent_keepalive'] if wireguard_client_persistent_keepalive | length == 0 else [])
+          }}
+
+    - name: Validate WireGuard public server settings
+      ansible.builtin.assert:
+        that:
+          - wireguard_client_endpoint_host | length > 0
+          - wireguard_client_endpoint_port | length > 0
+          - wireguard_client_server_public_key | length > 0
+        fail_msg: "Missing endpoint_host, endpoint_port, or server_public_key in the WireGuard server 1Password item."
+
+    - name: Validate WireGuard secret peer settings
+      ansible.builtin.assert:
+        that:
+          - wireguard_client_missing_peer_fields | length == 0
+        fail_msg: "Missing required WireGuard peer fields in 1Password item '{{ wireguard_client_peer_op_item }}': {{ wireguard_client_missing_peer_fields | join(', ') }}."
+
+    - name: Install WireGuard
+      become: true
+      ansible.builtin.package:
+        name:
+          - wireguard
+        state: present
+
+    - name: /etc/wireguard
+      become: true
+      ansible.builtin.file:
+        path: /etc/wireguard
+        state: directory
+        owner: root
+        group: root
+        mode: '0700'
+
+    - name: "/etc/wireguard/{{ wireguard_client_interface }}.conf"
+      become: true
+      ansible.builtin.template:
+        src: files/wireguard-client.conf.j2
+        dest: "/etc/wireguard/{{ wireguard_client_interface }}.conf"
+        owner: root
+        group: root
+        mode: '0600'
+      register: wireguard_client_config
+      no_log: true
+
+    - name: Restart WireGuard client when config changed
+      become: true
+      ansible.builtin.systemd:
+        name: "wg-quick@{{ wireguard_client_interface }}"
+        state: restarted
+      when: wireguard_client_config.changed
+
+    - name: Make sure WireGuard client is running
+      become: true
+      ansible.builtin.systemd:
+        name: "wg-quick@{{ wireguard_client_interface }}"
+        state: started
+        enabled: true

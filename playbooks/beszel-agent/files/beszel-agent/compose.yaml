@@ -25,6 +25,9 @@ services:
       TOKEN: "{{ beszel_agent_token }}"
       KEY: "{{ beszel_agent_hub_public_key }}"
       SYSTEM_NAME: "{{ beszel_agent_system_name }}"
+{% if beszel_agent_disable_ssh | bool %}
+      DISABLE_SSH: "true"
+{% endif %}
 {% if beszel_agent_effective_smart_devices | length > 0 %}
       SMART_DEVICES: "{{ beszel_agent_effective_smart_devices | join(',') }}"
 {% endif %}

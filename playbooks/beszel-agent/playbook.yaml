@@ -169,6 +169,9 @@
     beszel_agent_docker_socket: /var/run/docker.sock
     beszel_agent_smart_enabled: true
     beszel_agent_smart_devices: []
+    beszel_agent_disable_ssh: false
+    beszel_agent_systemd_wants: []
+    beszel_agent_systemd_after: []
   tasks:
     - name: Skip Beszel agent until hub bootstrap completes
       ansible.builtin.debug:

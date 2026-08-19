@@ -4,9 +4,9 @@ Description=beszel-agent service
 Requires=docker.service beszel.service
 After=docker.service beszel.service
 {% else %}
-Wants=network-online.target
+Wants=network-online.target{% for unit in beszel_agent_systemd_wants %} {{ unit }}{% endfor %}
 Requires=docker.service
-After=docker.service network-online.target
+After=docker.service network-online.target{% for unit in beszel_agent_systemd_after %} {{ unit }}{% endfor %}
 {% endif %}
 
 [Service]
