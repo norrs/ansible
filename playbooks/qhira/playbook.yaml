@@ -21,5 +21,5 @@
   ansible.builtin.import_playbook: ../docker/playbook.yaml
 - name: "Qhira - install 1password"
   ansible.builtin.import_playbook: ../1password/playbook.yaml
-- name: "Qhira - install rtx"
-  ansible.builtin.import_playbook: ../rtx/playbook.yaml
+- name: "Qhira - install mise"
+  ansible.builtin.import_playbook: ../mise/playbook.yaml

@@ -1,0 +1,29 @@
+- name: mise
+  hosts: all:localhost
+  tasks:
+    - name: Install extrepo
+      become: true
+      ansible.builtin.apt:
+        pkg:
+          - extrepo
+        state: present
+        update_cache: true
+
+    - name: Check mise extrepo apt source
+      become: true
+      ansible.builtin.stat:
+        path: /etc/apt/sources.list.d/extrepo_mise.sources
+      register: mise_extrepo_source
+
+    - name: Enable mise apt repository
+      become: true
+      ansible.builtin.command: extrepo enable mise
+      when: not mise_extrepo_source.stat.exists
+
+    - name: Update apt and install mise
+      become: true
+      ansible.builtin.apt:
+        pkg:
+          - mise
+        state: latest
+        update_cache: true
