@@ -1,5 +1,7 @@
 - name: "Workstation: dalaran"
   hosts: dalaran
+  tags:
+    - dalaran-workstation
   tasks:
     - name: Get remote file attributes
       stat:
@@ -17,6 +19,8 @@
     # Dalaran runs Debian testing/forky; Docker publishes Debian packages for
     # stable suites. See readme.md.
     docker_apt_suite: trixie
+  tags:
+    - dalaran-docker
 
 - name: "Dalaran - nginx proxy with letsencrypt DNS-01"
   ansible.builtin.import_playbook: ../nginx-proxy-with-letsencrypt/playbook.yaml
@@ -30,12 +34,16 @@
     nginx_proxy_nsupdate_key_path: /service/nginx-proxy/nsupdate.key
     nginx_proxy_acme_env_file: /service/nginx-proxy/acme-companion.env
     nginx_proxy_dns_sleep: "60"
+  tags:
+    - dalaran-nginx-proxy
 
 - name: "Dalaran - pocket-id"
   ansible.builtin.import_playbook: ../pocket-id/playbook.yaml
   vars:
     # Private value: pocket_id_hostname is defined in private/group_vars/dalaran.yaml.
     pocket_id_hosts: dalaran
+  tags:
+    - dalaran-pocket-id
 
 - name: "Dalaran - tinyauth"
   ansible.builtin.import_playbook: ../tinyauth/playbook.yaml
@@ -43,12 +51,16 @@
     # Private values: tinyauth_hostname, pocket_id_hostname, and beszel_hostname
     # are defined in private/group_vars/dalaran.yaml.
     tinyauth_hosts: dalaran
+  tags:
+    - dalaran-tinyauth
 
 - name: "Dalaran - beszel"
   ansible.builtin.import_playbook: ../beszel/playbook.yaml
   vars:
     # Private value: beszel_hostname is defined in private/group_vars/dalaran.yaml.
     beszel_hosts: dalaran
+  tags:
+    - dalaran-beszel
 
 - name: "Dalaran - beszel-agent"
   ansible.builtin.import_playbook: ../beszel-agent/playbook.yaml
@@ -56,3 +68,5 @@
     beszel_agent_hub_host: dalaran
     beszel_agent_hub_hosts: dalaran
     beszel_agent_hosts: dalaran
+  tags:
+    - dalaran-beszel-agent

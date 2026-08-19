@@ -2,15 +2,21 @@
 - import_playbook: ../docker/playbook.yaml
   vars:
     docker_hosts: cloud
+  tags:
+    - diablo-docker
 
 - import_playbook: ../wireguard-client/playbook.yaml
   vars:
     wireguard_client_hosts: cloud
     wireguard_client_server_op_item: wireguard/dune/server/monitoring
     wireguard_client_peer_op_item: wireguard/dune/peers/monitoring/diablo
+  tags:
+    - diablo-wireguard
 
 - name: Bootstrap
   hosts: cloud
+  tags:
+    - diablo-bootstrap
   tasks:
   - name: "Private hosts entries"
     become: true
@@ -23,6 +29,8 @@
       mode: '0644'
     loop: "{{ diablo_hosts_entries | default([]) }}"
     no_log: true
+    tags:
+      - diablo-hosts-entry
 
   - name: "/etc/network/interfaces.d/51-diablo"
     become: true
@@ -32,6 +40,8 @@
       owner: root
       group: root
       mode: '0644'
+    tags:
+      - diablo-network
 
   - name: "Disable cloud network configuration"
     become: true
@@ -41,6 +51,8 @@
       owner: root
       group: root
       mode: '0644'
+    tags:
+      - diablo-cloud-init
 
   - name: "/etc/dhcp/dhclient.conf"
     become: true
@@ -50,6 +62,8 @@
       owner: root
       group: root
       mode: '0644'
+    tags:
+      - diablo-dhclient
 
 - import_playbook: ../beszel-agent/playbook.yaml
   vars:
@@ -63,9 +77,25 @@
       - wg-quick@wg-monitoring.service
     beszel_agent_systemd_after:
       - wg-quick@wg-monitoring.service
+  tags:
+    - diablo-beszel-agent
 
 - import_playbook: ../mailserver/playbook.yaml
+  tags:
+    - diablo-mailserver
+
 - import_playbook: ../nginx-proxy-with-letsencrypt/playbook.yaml
+  tags:
+    - diablo-nginx-proxy
+
 - import_playbook: ../webserver/diablo.norrs.no/playbook.yaml
+  tags:
+    - diablo-webserver-diablo
+
 - import_playbook: ../webserver/norrs.no/playbook.yaml
+  tags:
+    - diablo-webserver-norrs
+
 - import_playbook: ../webmail/playbook.yaml
+  tags:
+    - diablo-webmail

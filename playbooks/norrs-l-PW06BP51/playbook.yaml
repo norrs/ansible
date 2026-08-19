@@ -1,6 +1,8 @@
 - name: "Orgrimmar: WGTWO"
   hosts: localhost
   connection: local
+  tags:
+    - norrs-l-PW06BP51-workstation
   tasks:
     - name: Get remote file attributes
       stat:
@@ -19,5 +21,9 @@
 
 - name: "Orgrimmar - install docker"
   ansible.builtin.import_playbook: ../docker/playbook.yaml
+  tags:
+    - norrs-l-PW06BP51-docker
 - name: "Orgrimmar - install 1password"
   ansible.builtin.import_playbook: ../1password/playbook.yaml
+  tags:
+    - norrs-l-PW06BP51-1password

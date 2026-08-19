@@ -1,6 +1,8 @@
 - name: "Workstation: qhira"
   hosts: localhost
   connection: local
+  tags:
+    - qhira-workstation
   tasks:
     - name: Get remote file attributes
       stat:
@@ -19,7 +21,13 @@
 
 - name: "Qhira - install docker"
   ansible.builtin.import_playbook: ../docker/playbook.yaml
+  tags:
+    - qhira-docker
 - name: "Qhira - install 1password"
   ansible.builtin.import_playbook: ../1password/playbook.yaml
+  tags:
+    - qhira-1password
 - name: "Qhira - install mise"
   ansible.builtin.import_playbook: ../mise/playbook.yaml
+  tags:
+    - qhira-mise

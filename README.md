@@ -32,6 +32,18 @@ Obtained via 1password integrations.
 
 `$ ansible-playbook playbooks/webserver/diablo.norrs.no/playbook.yaml --ask-become-pass`
 
+Run a single Diablo stack part through the wrapper:
+
+```bash
+scripts/play-host.bash
+scripts/play-host.bash diablo wireguard --ask-become-pass
+scripts/play-host.bash diablo beszel-agent --ask-become-pass
+scripts/play-host.bash diablo hosts-entry --ask-become-pass --check --diff
+```
+
+The wrapper uses `fzf` for interactive selection when available.
+In interactive mode it asks whether to include `--ask-become-pass`.
+
 # Tips
 
 Check facts:

@@ -10,6 +10,9 @@ services:
       - {{ beszel_agent_hub_socket_dir }}:/beszel_socket
 {% endif %}
       - {{ beszel_agent_docker_socket }}:/var/run/docker.sock:ro
+{% if beszel_agent_systemd_services_enabled | bool %}
+      - /var/run/dbus/system_bus_socket:/var/run/dbus/system_bus_socket:ro
+{% endif %}
 {% if beszel_agent_effective_smart_devices | length > 0 %}
     devices:
 {% for device in beszel_agent_effective_smart_devices %}

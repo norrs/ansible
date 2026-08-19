@@ -1,6 +1,8 @@
 ---
 - name: demo-norrs
   hosts: all
+  tags:
+    - demo-norrs-main
   tasks:
 
     - name: "/tmp/norrs-demo"

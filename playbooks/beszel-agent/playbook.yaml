@@ -172,6 +172,7 @@
     beszel_agent_disable_ssh: false
     beszel_agent_systemd_wants: []
     beszel_agent_systemd_after: []
+    beszel_agent_systemd_services_enabled: true
   tasks:
     - name: Skip Beszel agent until hub bootstrap completes
       ansible.builtin.debug:
