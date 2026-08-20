@@ -67,6 +67,15 @@
   tags:
     - dalaran-pocket-id
 
+- name: "Dalaran - pocket-id upgrade"
+  ansible.builtin.import_playbook: ../pocket-id-upgrade/playbook.yaml
+  vars:
+    # Private value: pocket_id_hostname is defined in private/group_vars/dalaran.yaml.
+    pocket_id_hosts: dalaran
+  tags:
+    - never
+    - dalaran-pocket-id-upgrade
+
 - name: "Dalaran - tinyauth"
   ansible.builtin.import_playbook: ../tinyauth/playbook.yaml
   vars:

@@ -1,0 +1,85 @@
+---
+- name: pocket-id-upgrade
+  hosts: "{{ pocket_id_hosts | default('dalaran') }}"
+  vars_files:
+    - ../pocket-id/vars.yaml
+  vars:
+    pocket_id_service_dir: /service/pocket-id
+    pocket_id_smtp_secret_container_path: /run/secrets/pocket_id_smtp_password
+  tasks:
+    - name: Resolve Pocket ID image
+      ansible.builtin.set_fact:
+        pocket_id_resolved_image: "{{ pocket_id_image | default(pocket_id_default_image) }}"
+
+    - name: Check Pocket ID service directory
+      become: true
+      ansible.builtin.stat:
+        path: "{{ pocket_id_service_dir }}"
+      register: pocket_id_service_dir_stat
+
+    - name: Validate Pocket ID is already installed
+      ansible.builtin.assert:
+        that:
+          - pocket_id_service_dir_stat.stat.isdir | default(false)
+        fail_msg: "Pocket ID service directory does not exist at {{ pocket_id_service_dir }}. Run the Pocket ID playbook before using the upgrade task."
+
+    - name: Read current local Pocket ID image ID
+      become: true
+      ansible.builtin.command:
+        cmd: "docker images --no-trunc --quiet {{ pocket_id_resolved_image | quote }}"
+      register: pocket_id_image_before
+      changed_when: false
+      failed_when: false
+
+    - name: "{{ pocket_id_service_dir }}/compose.yaml"
+      become: true
+      ansible.builtin.template:
+        src: ../pocket-id/files/pocket-id/compose.yaml
+        dest: "{{ pocket_id_service_dir }}/compose.yaml"
+        owner: root
+        group: root
+        mode: '0644'
+      register: pocket_id_compose
+
+    - name: Pull configured Pocket ID image
+      become: true
+      ansible.builtin.command:
+        cmd: docker compose -f compose.yaml pull pocket-id
+        chdir: "{{ pocket_id_service_dir }}"
+      register: pocket_id_pull
+      changed_when: false
+
+    - name: Read pulled Pocket ID image ID
+      become: true
+      ansible.builtin.command:
+        cmd: "docker images --no-trunc --quiet {{ pocket_id_resolved_image | quote }}"
+      register: pocket_id_image_after
+      changed_when: false
+
+    - name: Restart pocket-id after controlled image pull
+      become: true
+      ansible.builtin.systemd:
+        state: restarted
+        name: pocket-id
+      when: >
+        pocket_id_compose.changed
+        or pocket_id_image_before.stdout | trim != pocket_id_image_after.stdout | trim
+        or pocket_id_upgrade_force_restart | default(false) | bool
+
+    - name: Make sure pocket-id is running
+      become: true
+      ansible.builtin.systemd:
+        state: started
+        enabled: true
+        name: pocket-id
+
+    - name: Wait for Pocket ID HTTP endpoint
+      ansible.builtin.uri:
+        url: "https://{{ pocket_id_hostname }}/api/application-configuration"
+        method: GET
+        status_code: 200
+      register: pocket_id_http_check
+      retries: 12
+      delay: 5
+      until: pocket_id_http_check.status == 200
+      changed_when: false

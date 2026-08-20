@@ -1,6 +1,8 @@
 ---
 - name: pocket-id
   hosts: "{{ pocket_id_hosts | default('dalaran') }}"
+  vars_files:
+    - vars.yaml
   vars:
     pocket_id_service_dir: /service/pocket-id
     pocket_id_smtp_secret_container_path: /run/secrets/pocket_id_smtp_password

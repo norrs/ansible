@@ -198,3 +198,17 @@ The public BIND config only includes this policy fragment from inside the
      `/dev/sda`, `/dev/nvme0`, and `/dev/nvme1`, passes those devices into the
      container, and adds `SYS_RAWIO` / `SYS_ADMIN` as required by Beszel's Docker
      SMART guide.
+
+## Pocket ID upgrades
+
+Pocket ID is pinned to a concrete image tag in the Ansible playbook. When DIUN
+reports a newer semver tag, update `pocket_id_default_image` in
+`playbooks/pocket-id/vars.yaml`, then run the controlled upgrade tag:
+
+```bash
+scripts/play-host.bash dalaran pocket-id-upgrade --ask-become-pass
+```
+
+The upgrade task renders `/service/pocket-id/compose.yaml`, pulls the configured
+image, restarts `pocket-id` only when the compose file or pulled image changed,
+and waits for the public Pocket ID configuration endpoint to return HTTP 200.
