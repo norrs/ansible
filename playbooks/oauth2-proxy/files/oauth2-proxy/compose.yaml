@@ -1,0 +1,22 @@
+services:
+  oauth2-proxy:
+    image: {{ oauth2_proxy_image }}
+    container_name: oauth2-proxy
+    command: --config /oauth2-proxy.cfg
+    restart: unless-stopped
+    environment:
+      VIRTUAL_HOST: "{{ oauth2_proxy_hostname }}"
+      VIRTUAL_PORT: "4180"
+      ACME_HOST: "{{ oauth2_proxy_hostname }}"
+      LETSENCRYPT_HOST: "{{ oauth2_proxy_hostname }}"
+    expose:
+      - "4180"
+    volumes:
+      - ./config/oauth2-proxy.cfg:/oauth2-proxy.cfg:ro
+    networks:
+      - webservers
+
+networks:
+  webservers:
+    external: true
+    name: {{ oauth2_proxy_web_network_name | default('webservers') }}

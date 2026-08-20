@@ -1,0 +1,17 @@
+[Unit]
+Description=oauth2-proxy service
+Requires=docker.service
+After=docker.service
+
+[Service]
+WorkingDirectory=/service/oauth2-proxy
+ExecStartPre=/bin/sleep 1
+ExecStartPre=/usr/bin/docker compose pull
+ExecStart=/usr/bin/docker compose up
+ExecStop=/usr/bin/docker compose down
+ExecReload=/usr/bin/docker compose restart
+Restart=always
+TimeoutStartSec=0
+
+[Install]
+WantedBy=multi-user.target

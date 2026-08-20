@@ -1,0 +1,25 @@
+provider = "oidc"
+provider_display_name = "Pocket ID"
+oidc_issuer_url = "https://{{ pocket_id_hostname }}"
+
+client_id = "{{ oauth2_proxy_pocket_id_client_id }}"
+client_secret = "{{ oauth2_proxy_pocket_id_client_secret }}"
+cookie_secret = "{{ oauth2_proxy_cookie_secret }}"
+
+http_address = "0.0.0.0:4180"
+redirect_url = "https://{{ oauth2_proxy_hostname }}/oauth2/callback"
+reverse_proxy = true
+trusted_proxy_ips = ["{{ oauth2_proxy_trusted_proxies | default('172.16.0.0/12') }}"]
+real_client_ip_header = "X-Real-IP"
+
+scope = "openid email profile groups"
+email_domains = ["*"]
+whitelist_domains = ["{{ oauth2_proxy_cookie_domain }}"]
+cookie_domains = ["{{ oauth2_proxy_cookie_domain }}"]
+cookie_name = "{{ oauth2_proxy_cookie_name | default('__Secure-dalaran-oauth2') }}"
+cookie_secure = true
+
+set_xauthrequest = true
+pass_user_headers = true
+skip_provider_button = true
+upstreams = ["static://202"]

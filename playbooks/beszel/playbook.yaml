@@ -4,8 +4,10 @@
   vars:
     beszel_service_dir: /service/beszel
     beszel_database_path: "{{ beszel_service_dir }}/beszel_data/data.db"
-    beszel_tinyauth_op_vault: infra.norrs
-    beszel_tinyauth_op_item: tinyauth
+    beszel_oidc_op_vault: infra.norrs
+    beszel_oidc_op_item: beszel
+    beszel_oidc_client_id_field: POCKET_ID_CLIENT_ID
+    beszel_oidc_client_secret_field: POCKET_ID_CLIENT_SECRET
     beszel_smtp_default_op_vault: infra.norrs
     beszel_smtp_default_op_field: PASSWORD
     beszel_pushover_op_vault: infra.norrs
@@ -62,6 +64,12 @@
         - beszel_data
         - beszel_socket
 
+    - name: Set Beszel oauth2-proxy defaults
+      ansible.builtin.set_fact:
+        beszel_oauth2_proxy_enabled: "{{ beszel_oauth2_proxy_enabled | default(false) }}"
+        beszel_oauth2_proxy_internal_url: "{{ beszel_oauth2_proxy_internal_url | default('http://oauth2-proxy:4180') }}"
+        beszel_oauth2_proxy_allowed_groups: "{{ beszel_oauth2_proxy_allowed_groups | default('') }}"
+
     - name: "{{ beszel_service_dir }}/compose.yaml"
       become: true
       ansible.builtin.template:
@@ -80,7 +88,7 @@
         owner: root
         group: root
         mode: '0755'
-      when: beszel_tinyauth_enabled | default(false) | bool
+      when: beszel_oauth2_proxy_enabled | bool
 
     - name: Render Beszel nginx-proxy vhost snippet
       become: true
@@ -91,7 +99,7 @@
         group: root
         mode: '0644'
       register: beszel_vhost
-      when: beszel_tinyauth_enabled | default(false) | bool
+      when: beszel_oauth2_proxy_enabled | bool
 
     - name: Render Beszel nginx-proxy location snippet
       become: true
@@ -102,7 +110,7 @@
         group: root
         mode: '0644'
       register: beszel_vhost_location
-      when: beszel_tinyauth_enabled | default(false) | bool
+      when: beszel_oauth2_proxy_enabled | bool
 
     - name: Render Beszel agent-connect nginx-proxy location snippet
       become: true
@@ -113,7 +121,7 @@
         group: root
         mode: '0644'
       register: beszel_agent_connect_vhost_location
-      when: beszel_tinyauth_enabled | default(false) | bool
+      when: beszel_oauth2_proxy_enabled | bool
 
     - name: /etc/systemd/system/beszel.service
       become: true
@@ -152,7 +160,9 @@
       when: >
         not ansible_check_mode
         and
-        beszel_tinyauth_enabled | default(false) | bool
+        beszel_nginx_validate_on_change | default(true) | bool
+        and
+        beszel_oauth2_proxy_enabled | bool
         and (
           (beszel_vhost is defined and beszel_vhost.changed)
           or (beszel_vhost_location is defined and beszel_vhost_location.changed)
@@ -172,7 +182,9 @@
       when: >
         not ansible_check_mode
         and
-        beszel_tinyauth_enabled | default(false) | bool
+        beszel_nginx_validate_on_change | default(true) | bool
+        and
+        beszel_oauth2_proxy_enabled | bool
         and (
           (beszel_vhost is defined and beszel_vhost.changed)
           or (beszel_vhost_location is defined and beszel_vhost_location.changed)
@@ -186,30 +198,30 @@
         enabled: true
         name: beszel
 
-    - name: Read Beszel OIDC client credentials from 1Password
+    - name: Read Beszel Pocket ID OIDC client credentials from 1Password
       ansible.builtin.set_fact:
-        beszel_tinyauth_client_id: "{{ lookup('community.general.onepassword', beszel_tinyauth_op_item, field='BESZEL_CLIENT_ID', vault=beszel_tinyauth_op_vault, errors='ignore') | default('', true) }}"
-        beszel_tinyauth_client_secret: "{{ lookup('community.general.onepassword', beszel_tinyauth_op_item, field='BESZEL_CLIENT_SECRET', vault=beszel_tinyauth_op_vault, errors='ignore') | default('', true) }}"
+        beszel_oidc_client_id: "{{ lookup('community.general.onepassword', beszel_oidc_op_item, field=beszel_oidc_client_id_field, vault=beszel_oidc_op_vault, errors='ignore') | default('', true) }}"
+        beszel_oidc_client_secret: "{{ lookup('community.general.onepassword', beszel_oidc_op_item, field=beszel_oidc_client_secret_field, vault=beszel_oidc_op_vault, errors='ignore') | default('', true) }}"
       no_log: true
 
-    - name: Skip Beszel OIDC provider config until TinyAuth client credentials exist
+    - name: Skip Beszel OIDC provider config until Pocket ID client credentials exist
       ansible.builtin.debug:
-        msg: "Skipping Beszel OIDC provider config: BESZEL_CLIENT_ID and BESZEL_CLIENT_SECRET are missing from the 1Password item 'tinyauth'."
-      when: beszel_tinyauth_client_id | length == 0 or beszel_tinyauth_client_secret | length == 0
+        msg: "Skipping Beszel OIDC provider config: POCKET_ID_CLIENT_ID and POCKET_ID_CLIENT_SECRET are missing from the 1Password item 'beszel'."
+      when: beszel_oidc_client_id | length == 0 or beszel_oidc_client_secret | length == 0
 
     - name: Install sqlite3 for Beszel PocketBase configuration
       become: true
       ansible.builtin.package:
         name: sqlite3
         state: present
-      when: (beszel_smtp_enabled | default(false) | bool) or (beszel_pushover_enabled | default(false) | bool) or (beszel_tinyauth_client_id | length > 0 and beszel_tinyauth_client_secret | length > 0)
+      when: (beszel_smtp_enabled | default(false) | bool) or (beszel_pushover_enabled | default(false) | bool) or (beszel_oidc_client_id | length > 0 and beszel_oidc_client_secret | length > 0)
 
     - name: Wait for Beszel PocketBase database
       become: true
       ansible.builtin.wait_for:
         path: "{{ beszel_database_path }}"
         timeout: 60
-      when: (beszel_smtp_enabled | default(false) | bool) or (beszel_pushover_enabled | default(false) | bool) or (beszel_tinyauth_client_id | length > 0 and beszel_tinyauth_client_secret | length > 0)
+      when: (beszel_smtp_enabled | default(false) | bool) or (beszel_pushover_enabled | default(false) | bool) or (beszel_oidc_client_id | length > 0 and beszel_oidc_client_secret | length > 0)
 
     - name: Wait for Beszel PocketBase settings
       become: true
@@ -352,7 +364,7 @@
       retries: 12
       delay: 5
       until: beszel_users_collection.rc == 0 and (beszel_users_collection.stdout | trim) == '1'
-      when: (beszel_pushover_enabled | default(false) | bool) or (beszel_tinyauth_client_id | length > 0 and beszel_tinyauth_client_secret | length > 0)
+      when: (beszel_pushover_enabled | default(false) | bool) or (beszel_oidc_client_id | length > 0 and beszel_oidc_client_secret | length > 0)
 
     - name: Wait for Beszel user settings collection
       become: true
@@ -504,12 +516,12 @@
           WITH expected(raw) AS (
             VALUES(json('{{ {
               "name": "oidc",
-              "clientId": beszel_tinyauth_client_id,
-              "clientSecret": beszel_tinyauth_client_secret,
-              "authURL": "https://" ~ tinyauth_hostname ~ "/authorize",
-              "tokenURL": "https://" ~ tinyauth_hostname ~ "/api/oidc/token",
-              "userInfoURL": "https://" ~ tinyauth_hostname ~ "/api/oidc/userinfo",
-              "displayName": "Tinyauth",
+              "clientId": beszel_oidc_client_id,
+              "clientSecret": beszel_oidc_client_secret,
+              "authURL": "https://" ~ pocket_id_hostname ~ "/authorize",
+              "tokenURL": "https://" ~ pocket_id_hostname ~ "/api/oidc/token",
+              "userInfoURL": "https://" ~ pocket_id_hostname ~ "/api/oidc/userinfo",
+              "displayName": "Pocket ID",
               "pkce": true
             } | to_json | replace("'", "''") }}'))
           )
@@ -535,7 +547,7 @@
           END;
       register: beszel_oidc_config_needed
       changed_when: false
-      when: beszel_tinyauth_client_id | length > 0 and beszel_tinyauth_client_secret | length > 0
+      when: beszel_oidc_client_id | length > 0 and beszel_oidc_client_secret | length > 0
       no_log: true
 
     - name: Stop Beszel before PocketBase OIDC config update
@@ -558,12 +570,12 @@
           WITH provider(raw) AS (
             VALUES(json('{{ {
               "name": "oidc",
-              "clientId": beszel_tinyauth_client_id,
-              "clientSecret": beszel_tinyauth_client_secret,
-              "authURL": "https://" ~ tinyauth_hostname ~ "/authorize",
-              "tokenURL": "https://" ~ tinyauth_hostname ~ "/api/oidc/token",
-              "userInfoURL": "https://" ~ tinyauth_hostname ~ "/api/oidc/userinfo",
-              "displayName": "Tinyauth",
+              "clientId": beszel_oidc_client_id,
+              "clientSecret": beszel_oidc_client_secret,
+              "authURL": "https://" ~ pocket_id_hostname ~ "/authorize",
+              "tokenURL": "https://" ~ pocket_id_hostname ~ "/api/oidc/token",
+              "userInfoURL": "https://" ~ pocket_id_hostname ~ "/api/oidc/userinfo",
+              "displayName": "Pocket ID",
               "pkce": true
             } | to_json | replace("'", "''") }}'))
           ),

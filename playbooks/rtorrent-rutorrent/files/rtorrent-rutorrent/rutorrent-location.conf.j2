@@ -1,3 +1,8 @@
-auth_request /tinyauth;
-auth_request_set $redirection_url $upstream_http_x_tinyauth_location;
-error_page 401 403 =302 $redirection_url;
+auth_request /oauth2/auth{% if rtorrent_rutorrent_oauth2_proxy_allowed_groups | default('') %}?allowed_groups={{ rtorrent_rutorrent_oauth2_proxy_allowed_groups }}{% endif %};
+auth_request_set $oauth2_auth_cookie $upstream_http_set_cookie;
+auth_request_set $oauth2_email $upstream_http_x_auth_request_email;
+auth_request_set $oauth2_user $upstream_http_x_auth_request_user;
+add_header Set-Cookie $oauth2_auth_cookie;
+proxy_set_header X-Forwarded-Email $oauth2_email;
+proxy_set_header X-Forwarded-User $oauth2_user;
+error_page 401 =302 https://{{ oauth2_proxy_hostname }}/oauth2/start?rd=$scheme://$host$request_uri;

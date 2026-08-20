@@ -1,0 +1,139 @@
+---
+- name: tinyauth-remove
+  hosts: "{{ tinyauth_remove_hosts | default('dalaran') }}"
+  vars:
+    tinyauth_remove_service_dir: /service/tinyauth
+    tinyauth_remove_systemd_unit: /etc/systemd/system/tinyauth.service
+    tinyauth_remove_nginx_vhost_dir: /service/nginx-proxy/vhost.d
+    tinyauth_remove_purge_data: false
+    # Required when removing the old nginx-proxy snippet:
+    # tinyauth_remove_hostname: auth.example.com
+  tasks:
+    - name: Check TinyAuth service directory
+      become: true
+      ansible.builtin.stat:
+        path: "{{ tinyauth_remove_service_dir }}"
+      register: tinyauth_remove_service_dir_stat
+
+    - name: Stop and disable TinyAuth systemd service
+      become: true
+      ansible.builtin.systemd:
+        state: stopped
+        enabled: false
+        name: tinyauth
+      failed_when: false
+
+    - name: Stop TinyAuth compose stack when compose file exists
+      become: true
+      ansible.builtin.command:
+        argv:
+          - docker
+          - compose
+          - -f
+          - "{{ tinyauth_remove_service_dir }}/compose.yaml"
+          - down
+      register: tinyauth_remove_compose_down
+      changed_when: "'Removed' in tinyauth_remove_compose_down.stdout or 'Stopped' in tinyauth_remove_compose_down.stdout or 'Network' in tinyauth_remove_compose_down.stdout"
+      failed_when: false
+      when: tinyauth_remove_service_dir_stat.stat.exists
+
+    - name: Remove leftover TinyAuth container
+      become: true
+      ansible.builtin.command:
+        argv:
+          - docker
+          - rm
+          - -f
+          - tinyauth
+      register: tinyauth_remove_container
+      changed_when: tinyauth_remove_container.rc == 0
+      failed_when: false
+
+    - name: Remove TinyAuth systemd unit
+      become: true
+      ansible.builtin.file:
+        path: "{{ tinyauth_remove_systemd_unit }}"
+        state: absent
+      register: tinyauth_remove_unit
+
+    - name: Reload systemd after TinyAuth unit removal
+      become: true
+      ansible.builtin.systemd:
+        daemon_reload: true
+      when: tinyauth_remove_unit.changed
+
+    - name: Check TinyAuth nginx-proxy vhost snippet
+      become: true
+      ansible.builtin.stat:
+        path: "{{ tinyauth_remove_nginx_vhost_dir }}/{{ tinyauth_remove_hostname }}"
+      register: tinyauth_remove_vhost_stat
+      when: tinyauth_remove_hostname | default('') | length > 0
+
+    - name: Read TinyAuth nginx-proxy vhost snippet
+      become: true
+      ansible.builtin.slurp:
+        path: "{{ tinyauth_remove_nginx_vhost_dir }}/{{ tinyauth_remove_hostname }}"
+      register: tinyauth_remove_vhost_content
+      when:
+        - tinyauth_remove_vhost_stat is defined
+        - tinyauth_remove_vhost_stat.stat.exists
+
+    - name: Check whether nginx-proxy vhost snippet is the old TinyAuth snippet
+      ansible.builtin.set_fact:
+        tinyauth_remove_vhost_is_old: >-
+          {{
+            'Ending the TinyAuth session' in (tinyauth_remove_vhost_content.content | b64decode)
+            or '/api/user/logout' in (tinyauth_remove_vhost_content.content | b64decode)
+          }}
+      when: tinyauth_remove_vhost_content is defined and tinyauth_remove_vhost_content.content is defined
+
+    - name: Remove old TinyAuth nginx-proxy vhost snippet
+      become: true
+      ansible.builtin.file:
+        path: "{{ tinyauth_remove_nginx_vhost_dir }}/{{ tinyauth_remove_hostname }}"
+        state: absent
+      register: tinyauth_remove_vhost
+      when: tinyauth_remove_vhost_is_old | default(false) | bool
+
+    - name: Remove TinyAuth service directory when purge is enabled
+      become: true
+      ansible.builtin.file:
+        path: "{{ tinyauth_remove_service_dir }}"
+        state: absent
+      when: tinyauth_remove_purge_data | bool
+
+    - name: Test nginx-proxy config after TinyAuth vhost removal
+      become: true
+      ansible.builtin.command:
+        argv:
+          - docker
+          - exec
+          - nginx-proxy
+          - nginx
+          - -t
+      changed_when: false
+      failed_when: false
+      when: >
+        not ansible_check_mode
+        and
+        tinyauth_remove_vhost is defined
+        and
+        tinyauth_remove_vhost.changed
+
+    - name: Reload nginx-proxy config after TinyAuth vhost removal
+      become: true
+      ansible.builtin.command:
+        argv:
+          - docker
+          - exec
+          - nginx-proxy
+          - nginx
+          - -s
+          - reload
+      failed_when: false
+      when: >
+        not ansible_check_mode
+        and
+        tinyauth_remove_vhost is defined
+        and
+        tinyauth_remove_vhost.changed

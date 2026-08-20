@@ -1,0 +1,199 @@
+---
+- name: oauth2-proxy
+  hosts: "{{ oauth2_proxy_hosts | default('dalaran') }}"
+  vars:
+    oauth2_proxy_service_dir: /service/oauth2-proxy
+    oauth2_proxy_op_vault: infra.norrs
+    oauth2_proxy_op_item: oauth2-proxy
+    oauth2_proxy_image: quay.io/oauth2-proxy/oauth2-proxy:v7.15.4
+    oauth2_proxy_cookie_secret_chars: "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_-"
+    # Required private keys: oauth2_proxy_hostname, pocket_id_hostname,
+    # oauth2_proxy_cookie_domain. See private/group_vars/dalaran.yaml.
+  tasks:
+    - name: Read oauth2-proxy secrets from 1Password
+      ansible.builtin.set_fact:
+        oauth2_proxy_pocket_id_client_id: "{{ lookup('community.general.onepassword', oauth2_proxy_op_item, field='POCKET_ID_CLIENT_ID', vault=oauth2_proxy_op_vault, errors='ignore') | default('', true) }}"
+        oauth2_proxy_pocket_id_client_secret: "{{ lookup('community.general.onepassword', oauth2_proxy_op_item, field='POCKET_ID_CLIENT_SECRET', vault=oauth2_proxy_op_vault, errors='ignore') | default('', true) }}"
+        oauth2_proxy_existing_cookie_secret: "{{ lookup('community.general.onepassword', oauth2_proxy_op_item, field='COOKIE_SECRET', vault=oauth2_proxy_op_vault, errors='ignore') | default('', true) }}"
+      no_log: true
+
+    - name: Skip oauth2-proxy until Pocket ID OIDC client credentials exist
+      ansible.builtin.debug:
+        msg: "Skipping oauth2-proxy: create the oauth2-proxy OIDC client in Pocket ID, then store POCKET_ID_CLIENT_ID and POCKET_ID_CLIENT_SECRET in the 1Password item 'oauth2-proxy'."
+      when: oauth2_proxy_pocket_id_client_id | length == 0 or oauth2_proxy_pocket_id_client_secret | length == 0
+
+    - name: End oauth2-proxy play for hosts without Pocket ID OIDC client credentials
+      ansible.builtin.meta: end_host
+      when: oauth2_proxy_pocket_id_client_id | length == 0 or oauth2_proxy_pocket_id_client_secret | length == 0
+
+    - name: Generate oauth2-proxy cookie secret when absent
+      ansible.builtin.set_fact:
+        oauth2_proxy_generated_cookie_secret: "{{ lookup('community.general.random_string', length=32, override_all=oauth2_proxy_cookie_secret_chars) }}"
+      when: oauth2_proxy_existing_cookie_secret | length == 0
+      no_log: true
+
+    - name: Store generated oauth2-proxy cookie secret in 1Password
+      when: oauth2_proxy_generated_cookie_secret is defined
+      block:
+        - name: Upsert generated oauth2-proxy cookie secret in 1Password
+          delegate_to: localhost
+          become: false
+          ansible.builtin.shell:
+            cmd: |
+              set -euo pipefail
+              op item get "$OAUTH2_PROXY_OP_ITEM" --vault "$OAUTH2_PROXY_OP_VAULT" --format=json |
+                jq --arg cookie_secret "$OAUTH2_PROXY_COOKIE_SECRET" '
+                  .fields |= (
+                    map(select(.label != "COOKIE_SECRET"))
+                    + [
+                      {"label": "COOKIE_SECRET", "type": "CONCEALED", "value": $cookie_secret}
+                    ]
+                  )
+                ' |
+                op item edit "$OAUTH2_PROXY_OP_ITEM" --vault "$OAUTH2_PROXY_OP_VAULT"
+            executable: /bin/bash
+          environment:
+            OAUTH2_PROXY_OP_ITEM: "{{ oauth2_proxy_op_item }}"
+            OAUTH2_PROXY_OP_VAULT: "{{ oauth2_proxy_op_vault }}"
+            OAUTH2_PROXY_COOKIE_SECRET: "{{ oauth2_proxy_generated_cookie_secret }}"
+          no_log: true
+      rescue:
+        - name: Explain oauth2-proxy cookie secret storage failure
+          ansible.builtin.fail:
+            msg: "Failed to write COOKIE_SECRET to the 1Password item 'oauth2-proxy'. Check that the local op CLI is signed in, jq is installed, and the active 1Password account has write access to vault 'infra.norrs'."
+
+    - name: Set oauth2-proxy cookie secret
+      ansible.builtin.set_fact:
+        oauth2_proxy_cookie_secret: "{{ oauth2_proxy_generated_cookie_secret | default(oauth2_proxy_existing_cookie_secret, true) }}"
+      no_log: true
+
+    - name: "{{ oauth2_proxy_service_dir }}"
+      become: true
+      ansible.builtin.file:
+        path: "{{ oauth2_proxy_service_dir }}"
+        state: directory
+        owner: root
+        group: root
+        mode: '0755'
+
+    - name: Create oauth2-proxy service directories
+      become: true
+      ansible.builtin.file:
+        path: "{{ oauth2_proxy_service_dir }}/{{ item }}"
+        state: directory
+        owner: root
+        group: root
+        mode: '0755'
+      loop:
+        - config
+
+    - name: "{{ oauth2_proxy_nginx_vhost_dir | default('/service/nginx-proxy/vhost.d') }}"
+      become: true
+      ansible.builtin.file:
+        path: "{{ oauth2_proxy_nginx_vhost_dir | default('/service/nginx-proxy/vhost.d') }}"
+        state: directory
+        owner: root
+        group: root
+        mode: '0755'
+
+    - name: "{{ oauth2_proxy_service_dir }}/config/oauth2-proxy.cfg"
+      become: true
+      ansible.builtin.template:
+        src: templates/oauth2-proxy.cfg.j2
+        dest: "{{ oauth2_proxy_service_dir }}/config/oauth2-proxy.cfg"
+        owner: root
+        group: root
+        mode: '0640'
+      register: oauth2_proxy_config
+      no_log: true
+
+    - name: "{{ oauth2_proxy_service_dir }}/compose.yaml"
+      become: true
+      ansible.builtin.template:
+        src: files/oauth2-proxy/compose.yaml
+        dest: "{{ oauth2_proxy_service_dir }}/compose.yaml"
+        owner: root
+        group: root
+        mode: '0644'
+      register: oauth2_proxy_compose
+
+    - name: Render oauth2-proxy nginx-proxy vhost snippet
+      become: true
+      ansible.builtin.template:
+        src: files/oauth2-proxy/oauth2-proxy-vhost.conf.j2
+        dest: "{{ oauth2_proxy_nginx_vhost_dir | default('/service/nginx-proxy/vhost.d') }}/{{ oauth2_proxy_hostname }}"
+        owner: root
+        group: root
+        mode: '0644'
+      register: oauth2_proxy_vhost
+
+    - name: /etc/systemd/system/oauth2-proxy.service
+      become: true
+      ansible.builtin.template:
+        src: files/oauth2-proxy.service
+        dest: /etc/systemd/system/oauth2-proxy.service
+        owner: root
+        group: root
+        mode: '0644'
+      when: ansible_facts['service_mgr'] == 'systemd'
+      register: oauth2_proxy_unit
+
+    - name: Reload systemd
+      become: true
+      ansible.builtin.systemd:
+        daemon_reload: true
+      when: oauth2_proxy_unit.changed
+
+    - name: Restart oauth2-proxy when config changed
+      become: true
+      ansible.builtin.systemd:
+        state: restarted
+        name: oauth2-proxy
+      when: >
+        not ansible_check_mode
+        and (
+          oauth2_proxy_unit.changed
+          or oauth2_proxy_compose.changed
+          or oauth2_proxy_config.changed
+        )
+
+    - name: Test nginx-proxy config after oauth2-proxy vhost changes
+      become: true
+      ansible.builtin.command:
+        argv:
+          - docker
+          - exec
+          - nginx-proxy
+          - nginx
+          - -t
+      changed_when: false
+      when: >
+        not ansible_check_mode
+        and
+        oauth2_proxy_nginx_validate_on_change | default(true) | bool
+        and
+        oauth2_proxy_vhost.changed
+
+    - name: Reload nginx-proxy config after oauth2-proxy vhost changes
+      become: true
+      ansible.builtin.command:
+        argv:
+          - docker
+          - exec
+          - nginx-proxy
+          - nginx
+          - -s
+          - reload
+      when: >
+        not ansible_check_mode
+        and
+        oauth2_proxy_nginx_validate_on_change | default(true) | bool
+        and
+        oauth2_proxy_vhost.changed
+
+    - name: Make sure oauth2-proxy is running
+      become: true
+      ansible.builtin.systemd:
+        state: started
+        enabled: true
+        name: oauth2-proxy

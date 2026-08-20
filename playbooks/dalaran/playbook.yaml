@@ -45,13 +45,6 @@
   tags:
     - dalaran-diun
 
-- name: "Dalaran - rTorrent/ruTorrent"
-  ansible.builtin.import_playbook: ../rtorrent-rutorrent/playbook.yaml
-  vars:
-    rtorrent_rutorrent_hosts: dalaran
-  tags:
-    - dalaran-rtorrent-rutorrent
-
 - name: "Dalaran - samba-new"
   ansible.builtin.import_playbook: ../samba-new/playbook.yaml
   vars:
@@ -76,22 +69,70 @@
     - never
     - dalaran-pocket-id-upgrade
 
-- name: "Dalaran - tinyauth"
-  ansible.builtin.import_playbook: ../tinyauth/playbook.yaml
+- name: "Dalaran - oauth2-proxy"
+  ansible.builtin.import_playbook: ../oauth2-proxy/playbook.yaml
   vars:
-    # Private values: tinyauth_hostname, pocket_id_hostname, and beszel_hostname
-    # are defined in private/group_vars/dalaran.yaml.
-    tinyauth_hosts: dalaran
+    # Private values: oauth2_proxy_hostname, pocket_id_hostname, and
+    # oauth2_proxy_cookie_domain are defined in private/group_vars/dalaran.yaml.
+    oauth2_proxy_hosts: dalaran
+    oauth2_proxy_nginx_validate_on_change: false
   tags:
-    - dalaran-tinyauth
+    - dalaran-oauth2-proxy
+
+- name: "Dalaran - remove TinyAuth"
+  ansible.builtin.import_playbook: ../tinyauth-remove/playbook.yaml
+  vars:
+    tinyauth_remove_hosts: dalaran
+    tinyauth_remove_hostname: "{{ oauth2_proxy_hostname }}"
+  tags:
+    - never
+    - dalaran-remove-tinyauth
+
+- name: "Dalaran - rTorrent/ruTorrent"
+  ansible.builtin.import_playbook: ../rtorrent-rutorrent/playbook.yaml
+  vars:
+    rtorrent_rutorrent_hosts: dalaran
+    rtorrent_rutorrent_nginx_validate_on_change: false
+  tags:
+    - dalaran-rtorrent-rutorrent
 
 - name: "Dalaran - beszel"
   ansible.builtin.import_playbook: ../beszel/playbook.yaml
   vars:
     # Private value: beszel_hostname is defined in private/group_vars/dalaran.yaml.
     beszel_hosts: dalaran
+    beszel_nginx_validate_on_change: false
   tags:
     - dalaran-beszel
+
+- name: "Dalaran - validate nginx proxy"
+  hosts: dalaran
+  tags:
+    - dalaran-nginx-validate
+  tasks:
+    - name: Test nginx-proxy config after Dalaran vhost changes
+      become: true
+      ansible.builtin.command:
+        argv:
+          - docker
+          - exec
+          - nginx-proxy
+          - nginx
+          - -t
+      changed_when: false
+      when: not ansible_check_mode
+
+    - name: Reload nginx-proxy config after Dalaran vhost changes
+      become: true
+      ansible.builtin.command:
+        argv:
+          - docker
+          - exec
+          - nginx-proxy
+          - nginx
+          - -s
+          - reload
+      when: not ansible_check_mode
 
 - name: "Dalaran - beszel-agent"
   ansible.builtin.import_playbook: ../beszel-agent/playbook.yaml

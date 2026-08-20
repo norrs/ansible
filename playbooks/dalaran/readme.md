@@ -10,61 +10,37 @@ The Dalaran playbook composes a small self-hosted service stack:
 - `nginxproxy/nginx-proxy` and `nginxproxy/acme-companion` publish HTTPS
   virtual hosts and issue certificates with DNS-01 challenges.
 - Pocket ID is the upstream identity provider and passkey login surface.
-- TinyAuth sits at the auth boundary, authenticates users through Pocket ID,
-  and also exposes an OIDC provider for downstream apps.
-- Beszel uses TinyAuth as its OIDC login provider.
-- Beszel can also sit behind TinyAuth's nginx auth endpoint for per-app group
-  ACLs. In that mode Beszel trusts TinyAuth's `Remote-Email` header and the
-  agent websocket route is bypassed.
+- oauth2-proxy sits at the auth boundary, authenticates users through Pocket ID,
+  and provides nginx `auth_request` checks for apps without native OIDC.
+- Beszel can use Pocket ID as its native OIDC provider.
+- Beszel can also sit behind oauth2-proxy for per-app group ACLs. In that mode
+  Beszel trusts the `Remote-Email` header and the agent websocket route is
+  bypassed.
 - Beszel Agent runs locally on Dalaran, self-registers with the Beszel hub, and
   collects host, Docker, and SMART disk metrics.
 
 The intended authentication path is:
 
 ```text
-Pocket ID -> TinyAuth OAuth login -> TinyAuth OIDC provider -> Beszel
+Pocket ID -> oauth2-proxy -> protected apps
+Pocket ID -> Beszel native OIDC
 ```
 
 For different ACLs per app, create separate Pocket ID groups such as `beszel`
-and `rt`, then map them in `tinyauth_apps`:
+and `rt`, then map them in the app-specific oauth2-proxy variables:
 
 ```yaml
-tinyauth_apps:
-  - id: beszel
-    domain: beszel.example.com
-    oauth_whitelist: "/.*/"
-    oauth_groups:
-      - beszel
-  - id: rt_dalaran
-    domain: rt-dalaran.example.com
-    oauth_whitelist: "/.*/"
-    oauth_groups:
-      - rt
-  - id: rt
-    domain: rt.example.com
-    oauth_whitelist: "/.*/"
-    oauth_groups:
-      - rt
+beszel_oauth2_proxy_allowed_groups: beszel
+rtorrent_rutorrent_oauth2_proxy_allowed_groups: rt,RT
 ```
 
-Broad access to TinyAuth can be limited in the Pocket ID OIDC client
-configuration. Per-app access belongs in `tinyauth_apps`. Because this playbook
-uses `TINYAUTH_AUTH_ACLS_POLICY=deny`, OAuth-protected apps need an
-`oauth_whitelist` allow rule as well as any stricter `oauth_groups` rule.
-`oauth_whitelist: "/.*/"` allows authenticated OAuth identities to continue to
-the group check.
+Broad access to oauth2-proxy can be limited in the Pocket ID OIDC client
+configuration. Per-app access belongs in the app playbook vars, which are passed
+to oauth2-proxy's `/oauth2/auth` endpoint as `allowed_groups`.
 
-The `tinyauth_apps` entries render these TinyAuth ACL keys when present:
-`oauth_whitelist`, `oauth_groups`, `users_allow`, `users_block`, `ip_allow`,
-`ip_block`, `ip_bypass`, `path_allow`, `path_block`, and `ldap_groups`. Values
-may be strings or YAML lists; lists are rendered as comma-separated TinyAuth
-environment values.
-
-TinyAuth logout only clears TinyAuth's local session. The TinyAuth playbook also
-serves `https://auth.example.com/sso-logout`, which first posts to TinyAuth's
-logout endpoint and then sends the browser to Pocket ID's OIDC end-session
-endpoint. Pocket ID shows a confirmation page because TinyAuth does not preserve
-the upstream `id_token_hint` needed for a fully silent RP-initiated logout.
+The oauth2-proxy playbook serves `https://auth.example.com/sso-logout`, which
+clears the oauth2-proxy session and then sends the browser to Pocket ID's OIDC
+end-session endpoint with the current session's `id_token_hint`.
 
 ## Playbook structure
 
@@ -74,16 +50,33 @@ The top-level playbook imports the service playbooks in dependency order:
 playbooks/docker/playbook.yaml
 playbooks/nginx-proxy-with-letsencrypt/playbook.yaml
 playbooks/pocket-id/playbook.yaml
-playbooks/tinyauth/playbook.yaml
+playbooks/oauth2-proxy/playbook.yaml
+playbooks/tinyauth-remove/playbook.yaml
+playbooks/rtorrent-rutorrent/playbook.yaml
 playbooks/beszel/playbook.yaml
 playbooks/beszel-agent/playbook.yaml
 ```
 
-TinyAuth skips until the Pocket ID OIDC client credentials have been stored in
-1Password. Beszel starts independently, then configures its PocketBase OIDC
-provider once the generated TinyAuth/Beszel client credentials exist. The
+oauth2-proxy skips until its Pocket ID OIDC client credentials have been stored
+in 1Password. Beszel starts independently, then configures its PocketBase OIDC
+provider once Beszel's Pocket ID client credentials exist. The
 Beszel agent skips until at least one non-readonly Beszel user exists, because
 self-registered systems must be assigned to a user.
+
+The TinyAuth removal playbook is imported with a `never` tag. It only runs when
+explicitly requested:
+
+```bash
+ansible-playbook playbooks/dalaran/playbook.yaml --tags dalaran-remove-tinyauth --ask-become-pass
+```
+
+That cleanup stops and disables the old TinyAuth service, removes its systemd
+unit and old nginx-proxy vhost snippet, and leaves `/service/tinyauth` in place
+unless `tinyauth_remove_purge_data: true` is set.
+
+During the normal full Dalaran run, nginx-proxy is tested and reloaded after the
+oauth2-proxy, ruTorrent, and Beszel snippets have all been rendered. To run only
+that final validation step, use `--tags dalaran-nginx-validate`.
 
 ## Docker apt suite
 
@@ -110,12 +103,13 @@ Expected keys:
 
 ```yaml
 pocket_id_hostname: ...
-tinyauth_hostname: ...
+oauth2_proxy_hostname: ...
+oauth2_proxy_cookie_domain: ...
 beszel_hostname: ...
 nginx_proxy_nsupdate_server: ...
 nginx_proxy_nsupdate_zone: ...
 pocket_id_trust_proxy: ...
-tinyauth_trusted_proxies: ...
+oauth2_proxy_trusted_proxies: ...
 ```
 
 The public `group_vars/dalaran.yaml` path is a symlink to that private file.
@@ -156,35 +150,39 @@ The public BIND config only includes this policy fragment from inside the
 2. Run `ansible-playbook playbooks/bind/playbook.yaml --ask-become-pass`.
 3. Create the Pocket ID encryption key in 1Password.
 4. Run `ansible-playbook playbooks/dalaran/playbook.yaml --ask-become-pass`.
-   This installs Pocket ID and Beszel. TinyAuth is skipped until its Pocket ID
-   OIDC client credentials exist in 1Password.
+   This installs Pocket ID and Beszel. oauth2-proxy is skipped until its Pocket
+   ID OIDC client credentials exist in 1Password.
 5. Bootstrap Pocket ID and create the initial admin/passkey.
-6. In Pocket ID, create the TinyAuth OIDC client:
-   - Name: `Tinyauth`
-   - Callback URL: `https://auth.example.com/api/oauth/callback/pocketid`
+6. In Pocket ID, create the oauth2-proxy OIDC client:
+   - Name: `oauth2-proxy`
+   - Callback URL: `https://auth.example.com/oauth2/callback`
+   - Logout Callback URL: `https://auth.example.com/oauth2/sign_in`
    - Allowed user groups: include the Pocket ID group containing the users who
-     may access TinyAuth, for example `tinyauth_group`
-7. Store that Pocket ID client in 1Password item `tinyauth`:
+     may use the shared auth proxy.
+7. Store that Pocket ID client in 1Password item `oauth2-proxy`:
    - `POCKET_ID_CLIENT_ID`
    - `POCKET_ID_CLIENT_SECRET`
-   - Leave `OAUTH_WHITELIST` empty unless you want an additional TinyAuth-side
-     email/domain/regex restriction. Do not set it to a Pocket ID group name.
-     When empty, this playbook renders `TINYAUTH_OAUTH_WHITELIST=/.*/` so
-     TinyAuth's deny-by-default ACL policy does not block OAuth login itself;
-     Pocket ID Allowed User Groups remains the access gate.
-8. Rerun the Dalaran playbook. The TinyAuth playbook creates the Beszel OIDC
-   client credentials in 1Password if they are missing, and the Beszel playbook
-   configures Beszel's PocketBase `users` collection with an OpenID Connect
-   provider:
-   - Client ID: `BESZEL_CLIENT_ID` from 1Password item `tinyauth`
-   - Client Secret: `BESZEL_CLIENT_SECRET` from 1Password item `tinyauth`
-   - Display Name: `Tinyauth`
-   - Auth URL: `https://auth.example.com/authorize`
-   - Token URL: `https://auth.example.com/api/oidc/token`
+   - `COOKIE_SECRET` is generated by the playbook when missing.
+8. In Pocket ID, optionally create a Beszel OIDC client for Beszel's native OIDC
+   login:
+   - Name: `Beszel`
+   - Callback URL: `https://beszel.example.com/api/oauth2-redirect`
+9. Store the Beszel Pocket ID client in 1Password item `beszel`:
+   - `POCKET_ID_CLIENT_ID`
+   - `POCKET_ID_CLIENT_SECRET`
+10. Rerun the Dalaran playbook. The oauth2-proxy playbook starts the shared auth
+   proxy, and the Beszel playbook configures Beszel's PocketBase `users`
+   collection with an OpenID Connect provider when the Beszel client credentials
+   exist:
+   - Client ID: `POCKET_ID_CLIENT_ID` from 1Password item `beszel`
+   - Client Secret: `POCKET_ID_CLIENT_SECRET` from 1Password item `beszel`
+   - Display Name: `Pocket ID`
+   - Auth URL: `https://pocket.example.com/authorize`
+   - Token URL: `https://pocket.example.com/api/oidc/token`
    - Fetch user info from: User info URL
-   - User info URL: `https://auth.example.com/api/oidc/userinfo`
+   - User info URL: `https://pocket.example.com/api/oidc/userinfo`
    - Support PKCE: enabled
-9. Configure the local Beszel agent so Docker containers appear:
+11. Configure the local Beszel agent so Docker containers appear:
    - Log in to Beszel once so the `users` collection has an owner for systems.
    - Rerun `ansible-playbook playbooks/dalaran/playbook.yaml --ask-become-pass`.
    - The `beszel-agent` playbook derives the hub public key from

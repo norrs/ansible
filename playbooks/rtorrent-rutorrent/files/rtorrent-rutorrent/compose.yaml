@@ -23,7 +23,7 @@ services:
       - "${RT_INC_PORT}"
     networks:
       - rtorrent-rutorrent
-{% if rtorrent_rutorrent_tinyauth_enabled | bool %}
+{% if rtorrent_rutorrent_oauth2_proxy_enabled | bool %}
       - webservers
 {% endif %}
     ports:
@@ -41,7 +41,7 @@ services:
       - target: ${RT_INC_PORT}
         published: ${RT_INC_PORT}
         protocol: tcp
-{% if rtorrent_rutorrent_tinyauth_enabled | bool %}
+{% if rtorrent_rutorrent_oauth2_proxy_enabled | bool %}
     environment:
       VIRTUAL_HOST: "{{ rtorrent_rutorrent_web_hostnames | join(',') }}"
       VIRTUAL_PORT: "${RUTORRENT_PORT}"
@@ -77,7 +77,7 @@ services:
 networks:
   rtorrent-rutorrent:
     name: {{ rtorrent_rutorrent_network_name }}
-{% if rtorrent_rutorrent_tinyauth_enabled | bool %}
+{% if rtorrent_rutorrent_oauth2_proxy_enabled | bool %}
   webservers:
     external: true
     name: {{ rtorrent_rutorrent_web_network_name }}

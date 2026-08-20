@@ -12,9 +12,9 @@
         rtorrent_rutorrent_web_network_name: "{{ rtorrent_rutorrent_web_network_name | default('webservers') }}"
         rtorrent_rutorrent_web_hostname: "{{ rtorrent_rutorrent_web_hostname | default('') }}"
         rtorrent_rutorrent_web_aliases: "{{ rtorrent_rutorrent_web_aliases | default([]) }}"
-        rtorrent_rutorrent_tinyauth_enabled: "{{ rtorrent_rutorrent_tinyauth_enabled | default(false) }}"
-        rtorrent_rutorrent_tinyauth_internal_url: "{{ rtorrent_rutorrent_tinyauth_internal_url | default('http://tinyauth:3000') }}"
-        rtorrent_rutorrent_tinyauth_app_id: "{{ rtorrent_rutorrent_tinyauth_app_id | default('rutorrent') }}"
+        rtorrent_rutorrent_oauth2_proxy_enabled: "{{ rtorrent_rutorrent_oauth2_proxy_enabled | default(false) }}"
+        rtorrent_rutorrent_oauth2_proxy_internal_url: "{{ rtorrent_rutorrent_oauth2_proxy_internal_url | default('http://oauth2-proxy:4180') }}"
+        rtorrent_rutorrent_oauth2_proxy_allowed_groups: "{{ rtorrent_rutorrent_oauth2_proxy_allowed_groups | default('') }}"
         rtorrent_rutorrent_nginx_vhost_dir: "{{ rtorrent_rutorrent_nginx_vhost_dir | default('/service/nginx-proxy/vhost.d') }}"
         rtorrent_rutorrent_publish_rutorrent_port: "{{ rtorrent_rutorrent_publish_rutorrent_port | default(true) }}"
         rtorrent_rutorrent_timezone: "{{ rtorrent_rutorrent_timezone | default('Europe/Oslo') }}"
@@ -39,12 +39,12 @@
       ansible.builtin.set_fact:
         rtorrent_rutorrent_web_hostnames: "{{ ([rtorrent_rutorrent_web_hostname] + rtorrent_rutorrent_web_aliases) | reject('equalto', '') | unique | list }}"
 
-    - name: Validate ruTorrent TinyAuth proxy configuration
+    - name: Validate ruTorrent oauth2-proxy configuration
       ansible.builtin.assert:
         that:
           - rtorrent_rutorrent_web_hostnames | length > 0
-        fail_msg: "Set rtorrent_rutorrent_web_hostname when rtorrent_rutorrent_tinyauth_enabled is true."
-      when: rtorrent_rutorrent_tinyauth_enabled | bool
+        fail_msg: "Set rtorrent_rutorrent_web_hostname when rtorrent_rutorrent_oauth2_proxy_enabled is true."
+      when: rtorrent_rutorrent_oauth2_proxy_enabled | bool
 
     - name: Initialize rTorrent/ruTorrent secrets
       ansible.builtin.set_fact:
@@ -158,7 +158,7 @@
         owner: root
         group: root
         mode: '0755'
-      when: rtorrent_rutorrent_tinyauth_enabled | bool
+      when: rtorrent_rutorrent_oauth2_proxy_enabled | bool
 
     - name: Render ruTorrent nginx-proxy vhost snippets
       become: true
@@ -170,7 +170,7 @@
         mode: '0644'
       loop: "{{ rtorrent_rutorrent_web_hostnames }}"
       register: rtorrent_rutorrent_vhost
-      when: rtorrent_rutorrent_tinyauth_enabled | bool
+      when: rtorrent_rutorrent_oauth2_proxy_enabled | bool
 
     - name: Render ruTorrent nginx-proxy location snippets
       become: true
@@ -182,7 +182,7 @@
         mode: '0644'
       loop: "{{ rtorrent_rutorrent_web_hostnames }}"
       register: rtorrent_rutorrent_vhost_location
-      when: rtorrent_rutorrent_tinyauth_enabled | bool
+      when: rtorrent_rutorrent_oauth2_proxy_enabled | bool
 
     - name: /etc/systemd/system/rtorrent-rutorrent.service
       become: true
@@ -229,7 +229,9 @@
       when: >
         not ansible_check_mode
         and
-        rtorrent_rutorrent_tinyauth_enabled | bool
+        rtorrent_rutorrent_nginx_validate_on_change | default(true) | bool
+        and
+        rtorrent_rutorrent_oauth2_proxy_enabled | bool
         and (
           (rtorrent_rutorrent_vhost is defined and rtorrent_rutorrent_vhost.changed)
           or (rtorrent_rutorrent_vhost_location is defined and rtorrent_rutorrent_vhost_location.changed)
@@ -248,7 +250,9 @@
       when: >
         not ansible_check_mode
         and
-        rtorrent_rutorrent_tinyauth_enabled | bool
+        rtorrent_rutorrent_nginx_validate_on_change | default(true) | bool
+        and
+        rtorrent_rutorrent_oauth2_proxy_enabled | bool
         and (
           (rtorrent_rutorrent_vhost is defined and rtorrent_rutorrent_vhost.changed)
           or (rtorrent_rutorrent_vhost_location is defined and rtorrent_rutorrent_vhost_location.changed)

@@ -6,7 +6,7 @@ services:
     environment:
       APP_URL: https://{{ beszel_hostname }}
       USER_CREATION: "{{ beszel_user_creation | default('true') }}"
-{% if beszel_tinyauth_enabled | default(false) | bool %}
+{% if beszel_oauth2_proxy_enabled | bool %}
       TRUSTED_AUTH_HEADER: Remote-Email
       VIRTUAL_HOST_MULTIPORTS: |-
         {{ beszel_hostname }}:
