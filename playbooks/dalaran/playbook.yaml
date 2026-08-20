@@ -109,6 +109,9 @@
   hosts: dalaran
   tags:
     - dalaran-nginx-validate
+    - dalaran-oauth2-proxy
+    - dalaran-rtorrent-rutorrent
+    - dalaran-beszel
   tasks:
     - name: Test nginx-proxy config after Dalaran vhost changes
       become: true

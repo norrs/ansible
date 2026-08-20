@@ -6,6 +6,7 @@
     oauth2_proxy_op_vault: infra.norrs
     oauth2_proxy_op_item: oauth2-proxy
     oauth2_proxy_image: quay.io/oauth2-proxy/oauth2-proxy:v7.15.4
+    oauth2_proxy_runtime_gid: "65532"
     oauth2_proxy_cookie_secret_chars: "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_-"
     # Required private keys: oauth2_proxy_hostname, pocket_id_hostname,
     # oauth2_proxy_cookie_domain. See private/group_vars/dalaran.yaml.
@@ -102,7 +103,7 @@
         src: templates/oauth2-proxy.cfg.j2
         dest: "{{ oauth2_proxy_service_dir }}/config/oauth2-proxy.cfg"
         owner: root
-        group: root
+        group: "{{ oauth2_proxy_runtime_gid }}"
         mode: '0640'
       register: oauth2_proxy_config
       no_log: true
