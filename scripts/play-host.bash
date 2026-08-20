@@ -10,9 +10,12 @@ Usage: $(basename "$0") [HOST] [PART] [ansible-playbook args...]
 
 Run all or one tagged part of a host/top-level playbook.
 
-With no HOST or PART, the script opens an interactive menu. If fzf is
-available, it is used for selection; set PLAY_HOST_SELECTOR=number to use the
-plain numbered menu.
+With no HOST or PART, the script opens an interactive menu. The first menu can
+select one or more host/top-level playbooks. If one playbook is selected, a
+second menu selects all or one tagged part. If multiple playbooks are selected,
+the selected playbooks are run in full in one ansible-playbook invocation.
+If fzf is available, it is used for selection; set PLAY_HOST_SELECTOR=number to
+use the plain numbered menu.
 Interactive mode prompts whether to include --ask-become-pass unless extra
 ansible-playbook args are already supplied.
 Selectable playbooks are discovered dynamically from playbooks/*/playbook.yaml,
@@ -135,6 +138,81 @@ choose_from() {
   done
 }
 
+choose_multiple_from() {
+  local prompt="$1"
+  shift
+  local choices=("$@")
+  local selected selection part start end i
+  local -A seen=()
+
+  if command -v fzf >/dev/null 2>&1 && [[ "${PLAY_HOST_SELECTOR:-fzf}" != "number" ]]; then
+    selected="$(printf '%s\n' "${choices[@]}" |
+      fzf --multi --prompt="${prompt} " --height=40% --border \
+        --bind 'ctrl-a:select-all,ctrl-d:deselect-all')" ||
+      die "No selection made."
+    [[ -n "${selected}" ]] || die "No selection made."
+    printf '%s\n' "${selected}"
+    return 0
+  fi
+
+  echo "${prompt}" >&2
+  local index
+  for index in "${!choices[@]}"; do
+    printf '  %2d) %s\n' "$((index + 1))" "${choices[$index]}" >&2
+  done
+
+  while true; do
+    read -r -p "> " selection
+    selection="${selection//[[:space:]]/}"
+
+    if [[ "${selection}" == "all" ]]; then
+      printf '%s\n' "${choices[@]}"
+      return 0
+    fi
+
+    IFS=',' read -r -a parts <<< "${selection}"
+    selected=()
+    seen=()
+
+    for part in "${parts[@]}"; do
+      if [[ "${part}" =~ ^[0-9]+$ ]]; then
+        start="${part}"
+        end="${part}"
+      elif [[ "${part}" =~ ^([0-9]+)-([0-9]+)$ ]]; then
+        start="${BASH_REMATCH[1]}"
+        end="${BASH_REMATCH[2]}"
+        if ((start > end)); then
+          i="${start}"
+          start="${end}"
+          end="${i}"
+        fi
+      else
+        selected=()
+        break
+      fi
+
+      if ((start < 1 || end > ${#choices[@]})); then
+        selected=()
+        break
+      fi
+
+      for ((i = start; i <= end; i++)); do
+        if [[ -z "${seen[$i]:-}" ]]; then
+          selected+=("${choices[$((i - 1))]}")
+          seen[$i]=1
+        fi
+      done
+    done
+
+    if [[ "${#selected[@]}" -gt 0 ]]; then
+      printf '%s\n' "${selected[@]}"
+      return 0
+    fi
+
+    echo "Choose numbers separated by commas, ranges like 1-3, or all." >&2
+  done
+}
+
 confirm_yes_no() {
   local prompt="$1"
   local answer
@@ -195,6 +273,26 @@ run_host_part() {
   exec ansible-playbook -i "${INVENTORY}" "${playbook}" --tags "${tag}" "$@"
 }
 
+run_host_playbooks() {
+  local host
+  local playbook
+  local playbooks=()
+
+  while [[ $# -gt 0 && "${1}" != "--" ]]; do
+    host="$1"
+    shift
+
+    playbook="$(playbook_for_host "${host}")" ||
+      die "No host playbook found: playbooks/${host}/playbook.yaml"
+    playbooks+=("${playbook}")
+  done
+
+  [[ "${1:-}" == "--" ]] || die "Internal error: missing argument separator."
+  shift
+
+  exec ansible-playbook -i "${INVENTORY}" "${playbooks[@]}" "$@"
+}
+
 if [[ "${1:-}" == "-h" || "${1:-}" == "--help" || "${1:-}" == "help" ]]; then
   usage
   exit 0
@@ -204,6 +302,7 @@ host=
 part=
 extra_args=()
 interactive_mode=0
+selected_hosts=()
 
 if [[ $# -gt 0 && "${1}" != -* ]]; then
   host="$1"
@@ -225,7 +324,19 @@ if [[ -z "${host}" ]]; then
   interactive_mode=1
   mapfile -t host_playbooks < <(list_host_playbooks)
   [[ "${#host_playbooks[@]}" -gt 0 ]] || die "No host playbooks found."
-  host="$(choose_from "Select host/top-level playbook:" "${host_playbooks[@]}")"
+  mapfile -t selected_hosts < <(choose_multiple_from "Select host/top-level playbook(s):" "${host_playbooks[@]}")
+  [[ "${#selected_hosts[@]}" -gt 0 ]] || die "No selection made."
+
+  if [[ "${#selected_hosts[@]}" -gt 1 ]]; then
+    if [[ "${#extra_args[@]}" -eq 0 ]]; then
+      if confirm_yes_no "Include --ask-become-pass?"; then
+        extra_args+=(--ask-become-pass)
+      fi
+    fi
+    run_host_playbooks "${selected_hosts[@]}" -- "${extra_args[@]}"
+  fi
+
+  host="${selected_hosts[0]}"
 fi
 
 playbook="$(playbook_for_host "${host}")" ||

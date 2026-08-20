@@ -41,8 +41,12 @@ scripts/play-host.bash diablo beszel-agent --ask-become-pass
 scripts/play-host.bash diablo hosts-entry --ask-become-pass --check --diff
 ```
 
-The wrapper uses `fzf` for interactive selection when available.
-In interactive mode it asks whether to include `--ask-become-pass`.
+The wrapper uses `fzf` for interactive selection when available. The first
+interactive menu supports selecting multiple top-level playbooks; when using the
+numbered selector, enter comma-separated numbers, ranges like `1-3`, or `all`.
+If multiple playbooks are selected, they are run in full in one
+`ansible-playbook` invocation. In interactive mode it asks whether to include
+`--ask-become-pass`.
 
 # Tips
 
