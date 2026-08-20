@@ -1,7 +1,7 @@
 location /tinyauth {
     internal;
 
-    proxy_pass {{ rtorrent_rutorrent_tinyauth_internal_url }}/api/auth/nginx;
+    proxy_pass {{ beszel_tinyauth_internal_url | default('http://tinyauth:3000') }}/api/auth/nginx;
     proxy_pass_request_body off;
     proxy_set_header Content-Length "";
 

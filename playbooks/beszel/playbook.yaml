@@ -72,6 +72,49 @@
         mode: '0640'
       register: beszel_compose
 
+    - name: "{{ beszel_nginx_vhost_dir | default('/service/nginx-proxy/vhost.d') }}"
+      become: true
+      ansible.builtin.file:
+        path: "{{ beszel_nginx_vhost_dir | default('/service/nginx-proxy/vhost.d') }}"
+        state: directory
+        owner: root
+        group: root
+        mode: '0755'
+      when: beszel_tinyauth_enabled | default(false) | bool
+
+    - name: Render Beszel nginx-proxy vhost snippet
+      become: true
+      ansible.builtin.template:
+        src: files/beszel/beszel-vhost.conf.j2
+        dest: "{{ beszel_nginx_vhost_dir | default('/service/nginx-proxy/vhost.d') }}/{{ beszel_hostname }}"
+        owner: root
+        group: root
+        mode: '0644'
+      register: beszel_vhost
+      when: beszel_tinyauth_enabled | default(false) | bool
+
+    - name: Render Beszel nginx-proxy location snippet
+      become: true
+      ansible.builtin.template:
+        src: files/beszel/beszel-location.conf.j2
+        dest: "{{ beszel_nginx_vhost_dir | default('/service/nginx-proxy/vhost.d') }}/{{ beszel_hostname }}_location"
+        owner: root
+        group: root
+        mode: '0644'
+      register: beszel_vhost_location
+      when: beszel_tinyauth_enabled | default(false) | bool
+
+    - name: Render Beszel agent-connect nginx-proxy location snippet
+      become: true
+      ansible.builtin.template:
+        src: files/beszel/beszel-agent-connect-location.conf.j2
+        dest: "{{ beszel_nginx_vhost_dir | default('/service/nginx-proxy/vhost.d') }}/{{ beszel_hostname }}_{{ '/api/beszel/agent-connect' | hash('sha1') }}_location"
+        owner: root
+        group: root
+        mode: '0644'
+      register: beszel_agent_connect_vhost_location
+      when: beszel_tinyauth_enabled | default(false) | bool
+
     - name: /etc/systemd/system/beszel.service
       become: true
       ansible.builtin.template:
@@ -95,6 +138,46 @@
         state: restarted
         name: beszel
       when: beszel_unit.changed or beszel_compose.changed
+
+    - name: Test nginx-proxy config after Beszel vhost changes
+      become: true
+      ansible.builtin.command:
+        argv:
+          - docker
+          - exec
+          - nginx-proxy
+          - nginx
+          - -t
+      changed_when: false
+      when: >
+        not ansible_check_mode
+        and
+        beszel_tinyauth_enabled | default(false) | bool
+        and (
+          (beszel_vhost is defined and beszel_vhost.changed)
+          or (beszel_vhost_location is defined and beszel_vhost_location.changed)
+          or (beszel_agent_connect_vhost_location is defined and beszel_agent_connect_vhost_location.changed)
+        )
+
+    - name: Reload nginx-proxy config after Beszel vhost changes
+      become: true
+      ansible.builtin.command:
+        argv:
+          - docker
+          - exec
+          - nginx-proxy
+          - nginx
+          - -s
+          - reload
+      when: >
+        not ansible_check_mode
+        and
+        beszel_tinyauth_enabled | default(false) | bool
+        and (
+          (beszel_vhost is defined and beszel_vhost.changed)
+          or (beszel_vhost_location is defined and beszel_vhost_location.changed)
+          or (beszel_agent_connect_vhost_location is defined and beszel_agent_connect_vhost_location.changed)
+        )
 
     - name: Make sure beszel is running
       become: true

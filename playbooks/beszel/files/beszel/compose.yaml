@@ -6,8 +6,18 @@ services:
     environment:
       APP_URL: https://{{ beszel_hostname }}
       USER_CREATION: "{{ beszel_user_creation | default('true') }}"
+{% if beszel_tinyauth_enabled | default(false) | bool %}
+      TRUSTED_AUTH_HEADER: Remote-Email
+      VIRTUAL_HOST_MULTIPORTS: |-
+        {{ beszel_hostname }}:
+          "/":
+            port: 8090
+          "/api/beszel/agent-connect":
+            port: 8090
+{% else %}
       VIRTUAL_HOST: "{{ beszel_hostname }}"
       VIRTUAL_PORT: "8090"
+{% endif %}
       ACME_HOST: "{{ beszel_hostname }}"
       LETSENCRYPT_HOST: "{{ beszel_hostname }}"
     expose:

@@ -1,0 +1,5 @@
+auth_request /tinyauth;
+auth_request_set $redirection_url $upstream_http_x_tinyauth_location;
+auth_request_set $tinyauth_remote_email $upstream_http_remote_email;
+proxy_set_header Remote-Email $tinyauth_remote_email;
+error_page 401 403 =302 $redirection_url;
