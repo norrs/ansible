@@ -3,6 +3,7 @@ set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 INVENTORY="${ANSIBLE_INVENTORY:-${ROOT_DIR}/inventory.yaml}"
+ANSIBLE_OP_SERVICE_ACCOUNT_TOKEN_REF="${ANSIBLE_OP_SERVICE_ACCOUNT_TOKEN_REF:-op://Private/ansible-homelab-service-account/password}"
 
 usage() {
   cat >&2 <<EOF
@@ -31,12 +32,36 @@ Examples:
   scripts/play-host.bash diablo hosts-entry --ask-become-pass --check --diff
 
 Set ANSIBLE_INVENTORY to override the inventory path.
+Set ANSIBLE_OP_SERVICE_ACCOUNT_TOKEN_REF to override the 1Password secret
+reference used to load OP_SERVICE_ACCOUNT_TOKEN. If OP_SERVICE_ACCOUNT_TOKEN
+is already set, the existing value is used and no interactive 1Password lookup
+is performed.
 EOF
 }
 
 die() {
   echo "$*" >&2
   exit 2
+}
+
+load_1password_service_account() {
+  local token
+
+  if [[ -n "${OP_SERVICE_ACCOUNT_TOKEN:-}" ]]; then
+    return 0
+  fi
+
+  command -v op >/dev/null 2>&1 ||
+    die "1Password CLI (op) is required to load the Ansible service-account token."
+
+  token="$(op read "${ANSIBLE_OP_SERVICE_ACCOUNT_TOKEN_REF}")" ||
+    die "Failed to read Ansible service-account token from ${ANSIBLE_OP_SERVICE_ACCOUNT_TOKEN_REF}."
+
+  [[ -n "${token}" ]] ||
+    die "1Password returned an empty Ansible service-account token."
+
+  export OP_SERVICE_ACCOUNT_TOKEN="${token}"
+  unset token
 }
 
 is_interactive() {
@@ -262,6 +287,7 @@ run_host_part() {
     die "No host playbook found: playbooks/${host}/playbook.yaml"
 
   mapfile -t tags < <(list_tags_for_host "${host}" "${playbook}")
+  load_1password_service_account
 
   if [[ "${part}" == "all" ]]; then
     exec ansible-playbook -i "${INVENTORY}" "${playbook}" "$@"
@@ -289,6 +315,8 @@ run_host_playbooks() {
 
   [[ "${1:-}" == "--" ]] || die "Internal error: missing argument separator."
   shift
+
+  load_1password_service_accountO
 
   exec ansible-playbook -i "${INVENTORY}" "${playbooks[@]}" "$@"
 }
