@@ -120,6 +120,16 @@
         - resources
         - oidc
 
+    - name: "{{ tinyauth_nginx_vhost_dir | default('/service/nginx-proxy/vhost.d') }}"
+      become: true
+      ansible.builtin.file:
+        path: "{{ tinyauth_nginx_vhost_dir | default('/service/nginx-proxy/vhost.d') }}"
+        state: directory
+        owner: root
+        group: root
+        mode: '0755'
+      when: tinyauth_sso_logout_enabled | default(true) | bool
+
     - name: Generate Tinyauth OIDC private key
       become: true
       ansible.builtin.command:
@@ -183,6 +193,17 @@
         mode: '0644'
       register: tinyauth_compose
 
+    - name: Render TinyAuth nginx-proxy vhost snippet
+      become: true
+      ansible.builtin.template:
+        src: files/tinyauth/tinyauth-vhost.conf.j2
+        dest: "{{ tinyauth_nginx_vhost_dir | default('/service/nginx-proxy/vhost.d') }}/{{ tinyauth_hostname }}"
+        owner: root
+        group: root
+        mode: '0644'
+      register: tinyauth_vhost
+      when: tinyauth_sso_logout_enabled | default(true) | bool
+
     - name: /etc/systemd/system/tinyauth.service
       become: true
       ansible.builtin.template:
@@ -206,6 +227,39 @@
         state: restarted
         name: tinyauth
       when: tinyauth_unit.changed or tinyauth_compose.changed or tinyauth_env.changed
+
+    - name: Restart nginx-proxy after TinyAuth vhost changes
+      become: true
+      ansible.builtin.systemd:
+        state: restarted
+        name: nginx-proxy
+      when: >
+        not ansible_check_mode
+        and
+        tinyauth_sso_logout_enabled | default(true) | bool
+        and
+        tinyauth_vhost is defined
+        and
+        tinyauth_vhost.changed
+
+    - name: Test nginx-proxy config after TinyAuth vhost changes
+      become: true
+      ansible.builtin.command:
+        argv:
+          - docker
+          - exec
+          - nginx-proxy
+          - nginx
+          - -t
+      changed_when: false
+      when: >
+        not ansible_check_mode
+        and
+        tinyauth_sso_logout_enabled | default(true) | bool
+        and
+        tinyauth_vhost is defined
+        and
+        tinyauth_vhost.changed
 
     - name: Make sure tinyauth is running
       become: true

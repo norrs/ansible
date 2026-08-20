@@ -13,6 +13,9 @@ The Dalaran playbook composes a small self-hosted service stack:
 - TinyAuth sits at the auth boundary, authenticates users through Pocket ID,
   and also exposes an OIDC provider for downstream apps.
 - Beszel uses TinyAuth as its OIDC login provider.
+- Beszel can also sit behind TinyAuth's nginx auth endpoint for per-app group
+  ACLs. In that mode Beszel trusts TinyAuth's `Remote-Email` header and the
+  agent websocket route is bypassed.
 - Beszel Agent runs locally on Dalaran, self-registers with the Beszel hub, and
   collects host, Docker, and SMART disk metrics.
 
@@ -22,8 +25,46 @@ The intended authentication path is:
 Pocket ID -> TinyAuth OAuth login -> TinyAuth OIDC provider -> Beszel
 ```
 
-Group-based access belongs in the Pocket ID OIDC client configuration. TinyAuth
-`OAUTH_WHITELIST` is only an additional email/domain/regex identity filter.
+For different ACLs per app, create separate Pocket ID groups such as `beszel`
+and `rt`, then map them in `tinyauth_apps`:
+
+```yaml
+tinyauth_apps:
+  - id: beszel
+    domain: beszel.example.com
+    oauth_whitelist: "/.*/"
+    oauth_groups:
+      - beszel
+  - id: rt_dalaran
+    domain: rt-dalaran.example.com
+    oauth_whitelist: "/.*/"
+    oauth_groups:
+      - rt
+  - id: rt
+    domain: rt.example.com
+    oauth_whitelist: "/.*/"
+    oauth_groups:
+      - rt
+```
+
+Broad access to TinyAuth can be limited in the Pocket ID OIDC client
+configuration. Per-app access belongs in `tinyauth_apps`. Because this playbook
+uses `TINYAUTH_AUTH_ACLS_POLICY=deny`, OAuth-protected apps need an
+`oauth_whitelist` allow rule as well as any stricter `oauth_groups` rule.
+`oauth_whitelist: "/.*/"` allows authenticated OAuth identities to continue to
+the group check.
+
+The `tinyauth_apps` entries render these TinyAuth ACL keys when present:
+`oauth_whitelist`, `oauth_groups`, `users_allow`, `users_block`, `ip_allow`,
+`ip_block`, `ip_bypass`, `path_allow`, `path_block`, and `ldap_groups`. Values
+may be strings or YAML lists; lists are rendered as comma-separated TinyAuth
+environment values.
+
+TinyAuth logout only clears TinyAuth's local session. The TinyAuth playbook also
+serves `https://auth.example.com/sso-logout`, which first posts to TinyAuth's
+logout endpoint and then sends the browser to Pocket ID's OIDC end-session
+endpoint. Pocket ID shows a confirmation page because TinyAuth does not preserve
+the upstream `id_token_hint` needed for a fully silent RP-initiated logout.
 
 ## Playbook structure
 

@@ -19,7 +19,18 @@ reachable through the OAuth-protected virtual hosts.
 
 The playbook renders the nginx-proxy vhost snippets that call TinyAuth's Nginx
 auth endpoint. The matching TinyAuth app registration is supplied through
-`tinyauth_apps`, usually in private host vars.
+`tinyauth_apps`, usually in private host vars. With the repository's
+deny-by-default TinyAuth ACL policy, OAuth apps should set an OAuth allow rule
+and then the group gate:
+
+```yaml
+tinyauth_apps:
+  - id: rt
+    domain: rt.example.com
+    oauth_whitelist: "/.*/"
+    oauth_groups:
+      - rt
+```
 
 ## 1Password
 
