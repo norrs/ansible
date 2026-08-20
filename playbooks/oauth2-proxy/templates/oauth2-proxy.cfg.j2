@@ -13,6 +13,7 @@ trusted_proxy_ips = ["{{ oauth2_proxy_trusted_proxies | default('172.16.0.0/12')
 real_client_ip_header = "X-Real-IP"
 
 scope = "openid email profile groups"
+
 email_domains = ["*"]
 whitelist_domains = ["{{ oauth2_proxy_cookie_domain }}"]
 cookie_domains = ["{{ oauth2_proxy_cookie_domain }}"]

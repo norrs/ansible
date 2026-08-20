@@ -1,4 +1,4 @@
-auth_request /oauth2/auth{% if rtorrent_rutorrent_oauth2_proxy_allowed_groups | default('') %}?allowed_groups={{ rtorrent_rutorrent_oauth2_proxy_allowed_groups }}{% endif %};
+auth_request /oauth2/auth;
 auth_request_set $oauth2_auth_cookie $upstream_http_set_cookie;
 auth_request_set $oauth2_email $upstream_http_x_auth_request_email;
 auth_request_set $oauth2_user $upstream_http_x_auth_request_user;

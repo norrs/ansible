@@ -1,7 +1,7 @@
 location = /oauth2/auth {
     internal;
 
-    proxy_pass {{ rtorrent_rutorrent_oauth2_proxy_internal_url }}/oauth2/auth;
+    proxy_pass {{ rtorrent_rutorrent_oauth2_proxy_internal_url }}/oauth2/auth{% if rtorrent_rutorrent_oauth2_proxy_allowed_groups | default('') %}?allowed_groups={{ rtorrent_rutorrent_oauth2_proxy_allowed_groups }}{% endif %};
     proxy_pass_request_body off;
     proxy_set_header Content-Length "";
 
