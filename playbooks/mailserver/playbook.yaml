@@ -28,6 +28,7 @@
         owner: root
         group: root
         mode: '0644'
+      notify: Restart mailserver
 
     - name: "/opt/dms/mailserver.env"
       become: true
@@ -37,6 +38,7 @@
         owner: root
         group: root
         mode: '0644'
+      notify: Restart mailserver
 
     - name: "/opt/dms/docker-data/dms/config/fail2ban-jail.cf"
       become: true
@@ -46,6 +48,7 @@
         owner: root
         group: root
         mode: '0644'
+      notify: Restart mailserver
 
     - name: "/opt/dms/docker-data/dms/config/postfix-main.cf"
       become: true
@@ -55,6 +58,7 @@
         owner: root
         group: root
         mode: '0644'
+      notify: Restart mailserver
 
     - name: "/opt/dms/docker-data/dms/config/postfix-master.cf"
       become: true
@@ -64,6 +68,7 @@
         owner: root
         group: root
         mode: '0644'
+      notify: Restart mailserver
 
     - name: "/etc/systemd/system/mailserver.service"
       become: true
@@ -75,6 +80,7 @@
         mode: '0644'
       when: ansible_facts['service_mgr'] == 'systemd'
       register: reload_systemd
+      notify: Restart mailserver
 
     #- name: "/etc/systemd/system/webmail.service"
     #  become: true
@@ -189,3 +195,10 @@
       register: mailserver_service_alias_results
       changed_when: "'changed' in mailserver_service_alias_results.stdout"
       when: mailserver_service_accounts | default({}) | length > 0
+
+  handlers:
+    - name: Restart mailserver
+      become: true
+      ansible.builtin.systemd:
+        name: mailserver
+        state: restarted

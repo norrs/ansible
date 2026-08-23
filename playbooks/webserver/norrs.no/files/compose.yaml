@@ -14,9 +14,9 @@ services:
       # If you need SSL connection, you can provide your own certificates
       - /var/lib/docker/volumes/certs/_data:/etc/letsencrypt/live/:ro
     environment:
-      - VIRTUAL_HOST=norrs.no
+      - VIRTUAL_HOST=norrs.no,mta-sts.norrs.no
       - VIRTUAL_PORT=80
-      - LETSENCRYPT_HOST=norrs.no
+      - LETSENCRYPT_HOST=norrs.no,mta-sts.norrs.no
       - LETSENCRYPT_EMAIL={{ DEFAULT_EMAIL }}
       - LETSENCRYPT_TEST=false
     networks:

@@ -25,6 +25,7 @@
         owner: root
         group: root
         mode: '0644'
+      notify: Restart webserver-norrs
 
     - name: "/opt/webserver/norrs.no/www"
       become: true
@@ -38,6 +39,7 @@
       ansible.builtin.copy:
         src: www
         dest: /opt/webserver/norrs.no
+      notify: Restart webserver-norrs
 
     - name: "/opt/webserver/norrs.no/compose.yaml"
       become: true
@@ -49,6 +51,7 @@
         mode: '0644'
       vars:
         DEFAULT_EMAIL: "{{ lookup('community.general.onepassword', 'nginx-proxy-with-letsencrypt.default_email', field='notesPlain', vault='infra.norrs') }}"
+      notify: Restart webserver-norrs
 
 
 
@@ -62,6 +65,7 @@
         mode: '0644'
       when: ansible_facts['service_mgr'] == 'systemd'
       register: reload_systemd
+      notify: Restart webserver-norrs
 
     - name: Just force systemd to reread configs (2.4 and above)
       become: true
@@ -75,3 +79,10 @@
         state: started
         enabled: true
         name: webserver-norrs
+
+  handlers:
+    - name: Restart webserver-norrs
+      become: true
+      ansible.builtin.systemd:
+        name: webserver-norrs
+        state: restarted

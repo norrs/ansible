@@ -1,0 +1,4 @@
+version: STSv1
+mode: testing
+mx: diablo.norrs.no
+max_age: 604800
