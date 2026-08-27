@@ -52,6 +52,11 @@ The default schedule is every six hours:
 diun_watch_schedule: "0 */6 * * *"
 ```
 
+Some notifier fields are version-specific. `diun_discord_render_embeds`,
+`diun_discord_timeout`, and `diun_pushover_timeout` are omitted by default for
+Diun v4.29 compatibility. Set them explicitly only on hosts running a Diun
+version that supports those fields.
+
 Sources:
 
 - https://crazymax.dev/diun/install/docker/

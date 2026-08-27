@@ -15,9 +15,13 @@ notif:
 {% if diun_discord_enabled | bool %}
   discord:
     webhookURLFile: /run/secrets/diun_discord_webhook_url
+{% if diun_discord_render_embeds | string | length > 0 %}
     renderEmbeds: {{ diun_discord_render_embeds | bool | lower }}
+{% endif %}
     renderFields: {{ diun_discord_render_fields | bool | lower }}
+{% if diun_discord_timeout | string | length > 0 %}
     timeout: "{{ diun_discord_timeout }}"
+{% endif %}
 {% endif %}
 {% if diun_pushover_enabled | bool %}
   pushover:
@@ -25,6 +29,8 @@ notif:
     recipientFile: /run/secrets/diun_pushover_recipient
     priority: {{ diun_pushover_priority }}
     sound: "{{ diun_pushover_sound }}"
+{% if diun_pushover_timeout | string | length > 0 %}
     timeout: "{{ diun_pushover_timeout }}"
+{% endif %}
 {% endif %}
 {% endif %}
