@@ -1,0 +1,139 @@
+---
+- name: oauth2-proxy-remove
+  hosts: "{{ oauth2_proxy_remove_hosts | default('dalaran') }}"
+  vars:
+    oauth2_proxy_remove_service_dir: /service/oauth2-proxy
+    oauth2_proxy_remove_systemd_unit: /etc/systemd/system/oauth2-proxy.service
+    oauth2_proxy_remove_nginx_vhost_dir: /service/nginx-proxy/vhost.d
+    oauth2_proxy_remove_purge_data: false
+    # Required when removing the old nginx-proxy snippet:
+    # oauth2_proxy_remove_hostname: auth.example.com
+  tasks:
+    - name: Check oauth2-proxy service directory
+      become: true
+      ansible.builtin.stat:
+        path: "{{ oauth2_proxy_remove_service_dir }}"
+      register: oauth2_proxy_remove_service_dir_stat
+
+    - name: Stop and disable oauth2-proxy systemd service
+      become: true
+      ansible.builtin.systemd:
+        state: stopped
+        enabled: false
+        name: oauth2-proxy
+      failed_when: false
+
+    - name: Stop oauth2-proxy compose stack when compose file exists
+      become: true
+      ansible.builtin.command:
+        argv:
+          - docker
+          - compose
+          - -f
+          - "{{ oauth2_proxy_remove_service_dir }}/compose.yaml"
+          - down
+      register: oauth2_proxy_remove_compose_down
+      changed_when: "'Removed' in oauth2_proxy_remove_compose_down.stdout or 'Stopped' in oauth2_proxy_remove_compose_down.stdout or 'Network' in oauth2_proxy_remove_compose_down.stdout"
+      failed_when: false
+      when: oauth2_proxy_remove_service_dir_stat.stat.exists
+
+    - name: Remove leftover oauth2-proxy container
+      become: true
+      ansible.builtin.command:
+        argv:
+          - docker
+          - rm
+          - -f
+          - oauth2-proxy
+      register: oauth2_proxy_remove_container
+      changed_when: oauth2_proxy_remove_container.rc == 0
+      failed_when: false
+
+    - name: Remove oauth2-proxy systemd unit
+      become: true
+      ansible.builtin.file:
+        path: "{{ oauth2_proxy_remove_systemd_unit }}"
+        state: absent
+      register: oauth2_proxy_remove_unit
+
+    - name: Reload systemd after oauth2-proxy unit removal
+      become: true
+      ansible.builtin.systemd:
+        daemon_reload: true
+      when: oauth2_proxy_remove_unit.changed
+
+    - name: Check oauth2-proxy nginx-proxy vhost snippet
+      become: true
+      ansible.builtin.stat:
+        path: "{{ oauth2_proxy_remove_nginx_vhost_dir }}/{{ oauth2_proxy_remove_hostname }}"
+      register: oauth2_proxy_remove_vhost_stat
+      when: oauth2_proxy_remove_hostname | default('') | length > 0
+
+    - name: Read oauth2-proxy nginx-proxy vhost snippet
+      become: true
+      ansible.builtin.slurp:
+        path: "{{ oauth2_proxy_remove_nginx_vhost_dir }}/{{ oauth2_proxy_remove_hostname }}"
+      register: oauth2_proxy_remove_vhost_content
+      when:
+        - oauth2_proxy_remove_vhost_stat is defined
+        - oauth2_proxy_remove_vhost_stat.stat.exists
+
+    - name: Check whether nginx-proxy vhost snippet is the old oauth2-proxy snippet
+      ansible.builtin.set_fact:
+        oauth2_proxy_remove_vhost_is_old: >-
+          {{
+            '/oauth2/sign_out' in (oauth2_proxy_remove_vhost_content.content | b64decode)
+            or 'id_token_hint={id_token}' in (oauth2_proxy_remove_vhost_content.content | b64decode)
+          }}
+      when: oauth2_proxy_remove_vhost_content is defined and oauth2_proxy_remove_vhost_content.content is defined
+
+    - name: Remove old oauth2-proxy nginx-proxy vhost snippet
+      become: true
+      ansible.builtin.file:
+        path: "{{ oauth2_proxy_remove_nginx_vhost_dir }}/{{ oauth2_proxy_remove_hostname }}"
+        state: absent
+      register: oauth2_proxy_remove_vhost
+      when: oauth2_proxy_remove_vhost_is_old | default(false) | bool
+
+    - name: Remove oauth2-proxy service directory when purge is enabled
+      become: true
+      ansible.builtin.file:
+        path: "{{ oauth2_proxy_remove_service_dir }}"
+        state: absent
+      when: oauth2_proxy_remove_purge_data | bool
+
+    - name: Test nginx-proxy config after oauth2-proxy vhost removal
+      become: true
+      ansible.builtin.command:
+        argv:
+          - docker
+          - exec
+          - nginx-proxy
+          - nginx
+          - -t
+      changed_when: false
+      failed_when: false
+      when: >
+        not ansible_check_mode
+        and
+        oauth2_proxy_remove_vhost is defined
+        and
+        oauth2_proxy_remove_vhost.changed
+
+    - name: Reload nginx-proxy config after oauth2-proxy vhost removal
+      become: true
+      ansible.builtin.command:
+        argv:
+          - docker
+          - exec
+          - nginx-proxy
+          - nginx
+          - -s
+          - reload
+      failed_when: false
+      when: >
+        not ansible_check_mode
+        and
+        oauth2_proxy_remove_vhost is defined
+        and
+        oauth2_proxy_remove_vhost.changed

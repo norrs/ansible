@@ -1,0 +1,11 @@
+[Unit]
+Description=Periodically re-resolve WireGuard endpoint for {{ wireguard_client_interface }}
+
+[Timer]
+OnBootSec={{ wireguard_client_endpoint_reresolve_on_boot | default('2min') }}
+OnUnitActiveSec={{ wireguard_client_endpoint_reresolve_interval | default('5min') }}
+RandomizedDelaySec={{ wireguard_client_endpoint_reresolve_randomized_delay | default('30s') }}
+Persistent=true
+
+[Install]
+WantedBy=timers.target

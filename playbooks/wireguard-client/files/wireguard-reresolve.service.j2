@@ -1,0 +1,9 @@
+[Unit]
+Description=Re-resolve WireGuard endpoint for {{ wireguard_client_interface }}
+Wants=network-online.target wg-quick@{{ wireguard_client_interface }}.service
+After=network-online.target wg-quick@{{ wireguard_client_interface }}.service
+ConditionPathExists=/etc/wireguard/{{ wireguard_client_interface }}.conf
+
+[Service]
+Type=oneshot
+ExecStart=/usr/bin/wg set {{ wireguard_client_interface }} peer {{ wireguard_client_server_public_key }} endpoint {{ wireguard_client_endpoint_host }}:{{ wireguard_client_endpoint_port }}

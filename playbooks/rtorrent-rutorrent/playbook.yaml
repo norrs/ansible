@@ -12,7 +12,9 @@
         rtorrent_rutorrent_web_network_name: "{{ rtorrent_rutorrent_web_network_name | default('webservers') }}"
         rtorrent_rutorrent_web_hostname: "{{ rtorrent_rutorrent_web_hostname | default('') }}"
         rtorrent_rutorrent_web_aliases: "{{ rtorrent_rutorrent_web_aliases | default([]) }}"
-        rtorrent_rutorrent_oauth2_proxy_enabled: "{{ rtorrent_rutorrent_oauth2_proxy_enabled | default(false) }}"
+        rtorrent_rutorrent_auth_provider: "{{ rtorrent_rutorrent_auth_provider | default('tinyauth' if (rtorrent_rutorrent_tinyauth_enabled | default(false) | bool) else ('oauth2-proxy' if (rtorrent_rutorrent_oauth2_proxy_enabled | default(false) | bool) else 'none')) }}"
+        rtorrent_rutorrent_tinyauth_internal_url: "{{ rtorrent_rutorrent_tinyauth_internal_url | default('http://tinyauth:3000') }}"
+        rtorrent_rutorrent_tinyauth_hostname: "{{ rtorrent_rutorrent_tinyauth_hostname | default(tinyauth_hostname | default(oauth2_proxy_hostname | default(''))) }}"
         rtorrent_rutorrent_oauth2_proxy_internal_url: "{{ rtorrent_rutorrent_oauth2_proxy_internal_url | default('http://oauth2-proxy:4180') }}"
         rtorrent_rutorrent_oauth2_proxy_allowed_groups: "{{ rtorrent_rutorrent_oauth2_proxy_allowed_groups | default('') }}"
         rtorrent_rutorrent_nginx_vhost_dir: "{{ rtorrent_rutorrent_nginx_vhost_dir | default('/service/nginx-proxy/vhost.d') }}"
@@ -39,12 +41,18 @@
       ansible.builtin.set_fact:
         rtorrent_rutorrent_web_hostnames: "{{ ([rtorrent_rutorrent_web_hostname] + rtorrent_rutorrent_web_aliases) | reject('equalto', '') | unique | list }}"
 
-    - name: Validate ruTorrent oauth2-proxy configuration
+    - name: Validate ruTorrent auth configuration
       ansible.builtin.assert:
         that:
-          - rtorrent_rutorrent_web_hostnames | length > 0
-        fail_msg: "Set rtorrent_rutorrent_web_hostname when rtorrent_rutorrent_oauth2_proxy_enabled is true."
-      when: rtorrent_rutorrent_oauth2_proxy_enabled | bool
+          - rtorrent_rutorrent_auth_provider in ['none', 'tinyauth', 'oauth2-proxy']
+          - rtorrent_rutorrent_auth_provider == 'none' or rtorrent_rutorrent_web_hostnames | length > 0
+          - rtorrent_rutorrent_auth_provider != 'tinyauth' or rtorrent_rutorrent_tinyauth_hostname | length > 0
+          - rtorrent_rutorrent_auth_provider != 'oauth2-proxy' or oauth2_proxy_hostname | default('') | length > 0
+        fail_msg: "Set rtorrent_rutorrent_auth_provider to one of none, tinyauth, or oauth2-proxy, and configure web/auth hostnames for the selected provider."
+
+    - name: Set ruTorrent auth enabled state
+      ansible.builtin.set_fact:
+        rtorrent_rutorrent_auth_enabled: "{{ rtorrent_rutorrent_auth_provider != 'none' }}"
 
     - name: Initialize rTorrent/ruTorrent secrets
       ansible.builtin.set_fact:
@@ -158,31 +166,31 @@
         owner: root
         group: root
         mode: '0755'
-      when: rtorrent_rutorrent_oauth2_proxy_enabled | bool
+      when: rtorrent_rutorrent_auth_enabled | bool
 
     - name: Render ruTorrent nginx-proxy vhost snippets
       become: true
       ansible.builtin.template:
-        src: files/rtorrent-rutorrent/rutorrent-vhost.conf.j2
+        src: "files/rtorrent-rutorrent/rutorrent-vhost-{{ rtorrent_rutorrent_auth_provider }}.conf.j2"
         dest: "{{ rtorrent_rutorrent_nginx_vhost_dir }}/{{ item }}"
         owner: root
         group: root
         mode: '0644'
       loop: "{{ rtorrent_rutorrent_web_hostnames }}"
       register: rtorrent_rutorrent_vhost
-      when: rtorrent_rutorrent_oauth2_proxy_enabled | bool
+      when: rtorrent_rutorrent_auth_enabled | bool
 
     - name: Render ruTorrent nginx-proxy location snippets
       become: true
       ansible.builtin.template:
-        src: files/rtorrent-rutorrent/rutorrent-location.conf.j2
+        src: "files/rtorrent-rutorrent/rutorrent-location-{{ rtorrent_rutorrent_auth_provider }}.conf.j2"
         dest: "{{ rtorrent_rutorrent_nginx_vhost_dir }}/{{ item }}_location"
         owner: root
         group: root
         mode: '0644'
       loop: "{{ rtorrent_rutorrent_web_hostnames }}"
       register: rtorrent_rutorrent_vhost_location
-      when: rtorrent_rutorrent_oauth2_proxy_enabled | bool
+      when: rtorrent_rutorrent_auth_enabled | bool
 
     - name: /etc/systemd/system/rtorrent-rutorrent.service
       become: true
@@ -231,7 +239,7 @@
         and
         rtorrent_rutorrent_nginx_validate_on_change | default(true) | bool
         and
-        rtorrent_rutorrent_oauth2_proxy_enabled | bool
+        rtorrent_rutorrent_auth_enabled | bool
         and (
           (rtorrent_rutorrent_vhost is defined and rtorrent_rutorrent_vhost.changed)
           or (rtorrent_rutorrent_vhost_location is defined and rtorrent_rutorrent_vhost_location.changed)
@@ -252,7 +260,7 @@
         and
         rtorrent_rutorrent_nginx_validate_on_change | default(true) | bool
         and
-        rtorrent_rutorrent_oauth2_proxy_enabled | bool
+        rtorrent_rutorrent_auth_enabled | bool
         and (
           (rtorrent_rutorrent_vhost is defined and rtorrent_rutorrent_vhost.changed)
           or (rtorrent_rutorrent_vhost_location is defined and rtorrent_rutorrent_vhost_location.changed)

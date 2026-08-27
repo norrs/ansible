@@ -5,6 +5,7 @@
     tinyauth_service_dir: /service/tinyauth
     tinyauth_op_vault: infra.norrs
     tinyauth_op_item: tinyauth
+    tinyauth_image: ghcr.io/tinyauthapp/tinyauth:v5
     tinyauth_beszel_client_secret_chars: "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_-"
     # Required private keys: tinyauth_hostname, pocket_id_hostname, beszel_hostname.
     # See private/group_vars/dalaran.yaml.
@@ -228,19 +229,155 @@
         name: tinyauth
       when: tinyauth_unit.changed or tinyauth_compose.changed or tinyauth_env.changed
 
-    - name: Restart nginx-proxy after TinyAuth vhost changes
+    - name: Make sure tinyauth is running
       become: true
       ansible.builtin.systemd:
-        state: restarted
-        name: nginx-proxy
+        state: started
+        enabled: true
+        name: tinyauth
+
+    - name: Inspect TinyAuth container before nginx-proxy validation
+      become: true
+      ansible.builtin.command:
+        argv:
+          - docker
+          - container
+          - inspect
+          - tinyauth
+      register: tinyauth_container_inspect
+      changed_when: false
+      failed_when: false
       when: >
         not ansible_check_mode
+        and
+        tinyauth_nginx_validate_on_change | default(true) | bool
         and
         tinyauth_sso_logout_enabled | default(true) | bool
         and
         tinyauth_vhost is defined
         and
         tinyauth_vhost.changed
+
+    - name: Inspect nginx-proxy container before TinyAuth nginx-proxy validation
+      become: true
+      ansible.builtin.command:
+        argv:
+          - docker
+          - container
+          - inspect
+          - nginx-proxy
+      register: tinyauth_nginx_proxy_container_inspect
+      changed_when: false
+      failed_when: false
+      when: >
+        not ansible_check_mode
+        and
+        tinyauth_nginx_validate_on_change | default(true) | bool
+        and
+        tinyauth_sso_logout_enabled | default(true) | bool
+        and
+        tinyauth_vhost is defined
+        and
+        tinyauth_vhost.changed
+
+    - name: Validate TinyAuth container exists before nginx-proxy validation
+      ansible.builtin.assert:
+        that:
+          - tinyauth_container_inspect.rc == 0
+        fail_msg: "TinyAuth container 'tinyauth' is missing; start tinyauth before testing nginx-proxy because nginx resolves http://tinyauth:3000 through the Docker network."
+      when: >
+        tinyauth_container_inspect is defined
+        and
+        not (tinyauth_container_inspect.skipped | default(false))
+
+    - name: Validate nginx-proxy container exists before TinyAuth nginx-proxy validation
+      ansible.builtin.assert:
+        that:
+          - tinyauth_nginx_proxy_container_inspect.rc == 0
+        fail_msg: "nginx-proxy container is missing; start nginx-proxy before testing nginx-proxy config."
+      when: >
+        tinyauth_nginx_proxy_container_inspect is defined
+        and
+        not (tinyauth_nginx_proxy_container_inspect.skipped | default(false))
+
+    - name: Read TinyAuth container state before nginx-proxy validation
+      ansible.builtin.set_fact:
+        tinyauth_container_state: "{{ tinyauth_container_inspect.stdout | from_json | first }}"
+      when: >
+        tinyauth_container_inspect is defined
+        and
+        not (tinyauth_container_inspect.skipped | default(false))
+        and
+        tinyauth_container_inspect.rc == 0
+
+    - name: Read nginx-proxy container state before TinyAuth nginx-proxy validation
+      ansible.builtin.set_fact:
+        tinyauth_nginx_proxy_container_state: "{{ tinyauth_nginx_proxy_container_inspect.stdout | from_json | first }}"
+      when: >
+        tinyauth_nginx_proxy_container_inspect is defined
+        and
+        not (tinyauth_nginx_proxy_container_inspect.skipped | default(false))
+        and
+        tinyauth_nginx_proxy_container_inspect.rc == 0
+
+    - name: Validate TinyAuth and nginx-proxy share the webservers network
+      ansible.builtin.assert:
+        that:
+          - tinyauth_container_state.State.Running | bool
+          - tinyauth_nginx_proxy_container_state.State.Running | bool
+          - "'webservers' in (tinyauth_container_state.NetworkSettings.Networks | default({}))"
+          - "'webservers' in (tinyauth_nginx_proxy_container_state.NetworkSettings.Networks | default({}))"
+          - "'tinyauth' in (tinyauth_container_state.NetworkSettings.Networks.webservers.Aliases | default([]))"
+        fail_msg: "TinyAuth container 'tinyauth' and nginx-proxy must both be running and attached to Docker network 'webservers' before testing nginx-proxy; nginx resolves http://tinyauth:3000 through that shared network."
+      when: >
+        tinyauth_container_state is defined
+        and
+        tinyauth_nginx_proxy_container_state is defined
+
+    - name: Check nginx-proxy can resolve TinyAuth through Docker DNS
+      become: true
+      ansible.builtin.shell:
+        cmd: |
+          docker exec nginx-proxy sh -c '
+            printf "command="
+            command -v getent || true
+            printf "\nresolv.conf:\n"
+            cat /etc/resolv.conf
+            printf "\nlookup:\n"
+            getent hosts tinyauth
+          '
+      register: tinyauth_dns_lookup
+      changed_when: false
+      failed_when: false
+      retries: 12
+      delay: 5
+      until: tinyauth_dns_lookup.rc == 0
+      when: >
+        not ansible_check_mode
+        and
+        tinyauth_nginx_validate_on_change | default(true) | bool
+        and
+        tinyauth_sso_logout_enabled | default(true) | bool
+        and
+        tinyauth_vhost is defined
+        and
+        tinyauth_vhost.changed
+
+    - name: Validate nginx-proxy can resolve TinyAuth before nginx-proxy validation
+      ansible.builtin.assert:
+        that:
+          - tinyauth_dns_lookup.rc == 0
+        fail_msg: |-
+          nginx-proxy cannot resolve 'tinyauth' through Docker DNS.
+          rc={{ tinyauth_dns_lookup.rc }}
+          stdout:
+          {{ tinyauth_dns_lookup.stdout | default('') }}
+          stderr:
+          {{ tinyauth_dns_lookup.stderr | default('') }}
+      when: >
+        tinyauth_dns_lookup is defined
+        and
+        not (tinyauth_dns_lookup.skipped | default(false))
 
     - name: Test nginx-proxy config after TinyAuth vhost changes
       become: true
@@ -255,15 +392,31 @@
       when: >
         not ansible_check_mode
         and
+        tinyauth_nginx_validate_on_change | default(true) | bool
+        and
         tinyauth_sso_logout_enabled | default(true) | bool
         and
         tinyauth_vhost is defined
         and
         tinyauth_vhost.changed
 
-    - name: Make sure tinyauth is running
+    - name: Reload nginx-proxy config after TinyAuth vhost changes
       become: true
-      ansible.builtin.systemd:
-        state: started
-        enabled: true
-        name: tinyauth
+      ansible.builtin.command:
+        argv:
+          - docker
+          - exec
+          - nginx-proxy
+          - nginx
+          - -s
+          - reload
+      when: >
+        not ansible_check_mode
+        and
+        tinyauth_nginx_validate_on_change | default(true) | bool
+        and
+        tinyauth_sso_logout_enabled | default(true) | bool
+        and
+        tinyauth_vhost is defined
+        and
+        tinyauth_vhost.changed

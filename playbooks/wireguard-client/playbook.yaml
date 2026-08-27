@@ -110,3 +110,43 @@
         name: "wg-quick@{{ wireguard_client_interface }}"
         state: started
         enabled: true
+
+    - name: "/etc/systemd/system/wireguard-reresolve-{{ wireguard_client_interface }}.service"
+      become: true
+      ansible.builtin.template:
+        src: files/wireguard-reresolve.service.j2
+        dest: "/etc/systemd/system/wireguard-reresolve-{{ wireguard_client_interface }}.service"
+        owner: root
+        group: root
+        mode: '0644'
+      register: wireguard_client_reresolve_service
+
+    - name: "/etc/systemd/system/wireguard-reresolve-{{ wireguard_client_interface }}.timer"
+      become: true
+      ansible.builtin.template:
+        src: files/wireguard-reresolve.timer.j2
+        dest: "/etc/systemd/system/wireguard-reresolve-{{ wireguard_client_interface }}.timer"
+        owner: root
+        group: root
+        mode: '0644'
+      register: wireguard_client_reresolve_timer
+
+    - name: Reload systemd for WireGuard endpoint re-resolver
+      become: true
+      ansible.builtin.systemd:
+        daemon_reload: true
+      when: wireguard_client_reresolve_service.changed or wireguard_client_reresolve_timer.changed
+
+    - name: Refresh WireGuard endpoint when resolver configuration changed
+      become: true
+      ansible.builtin.systemd:
+        name: "wireguard-reresolve-{{ wireguard_client_interface }}.service"
+        state: started
+      when: wireguard_client_config.changed or wireguard_client_reresolve_service.changed
+
+    - name: Make sure WireGuard endpoint re-resolver timer is running
+      become: true
+      ansible.builtin.systemd:
+        name: "wireguard-reresolve-{{ wireguard_client_interface }}.timer"
+        state: started
+        enabled: true

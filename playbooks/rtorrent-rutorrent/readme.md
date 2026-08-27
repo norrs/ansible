@@ -9,21 +9,29 @@ vars.
 
 ## ruTorrent web UI
 
-Set `rtorrent_rutorrent_oauth2_proxy_enabled: true` and
+Set `rtorrent_rutorrent_auth_provider: tinyauth` and
 `rtorrent_rutorrent_web_hostname` to publish the ruTorrent web interface through
-`nginx-proxy` and protect it with oauth2-proxy. Add extra browser names with
+`nginx-proxy` and protect it with TinyAuth. Add extra browser names with
 `rtorrent_rutorrent_web_aliases`. In that mode,
 set `rtorrent_rutorrent_publish_rutorrent_port: false` so the browser UI is only
-reachable through the OAuth-protected virtual hosts.
+reachable through the TinyAuth-protected virtual hosts.
 
-The playbook renders nginx-proxy vhost snippets that call oauth2-proxy's
-`/oauth2/auth` endpoint. Group access is supplied directly through the
-ruTorrent vars, usually in private host vars:
+The playbook renders nginx-proxy vhost snippets that call TinyAuth's
+`/api/auth/nginx` endpoint. Group access is supplied through TinyAuth app ACLs,
+usually in private host vars:
 
 ```yaml
-rtorrent_rutorrent_oauth2_proxy_enabled: true
-rtorrent_rutorrent_oauth2_proxy_allowed_groups: rt,RT
+rtorrent_rutorrent_auth_provider: tinyauth
+tinyauth_apps:
+  - id: rtorrent
+    domain: "{{ rtorrent_rutorrent_web_hostname }}"
+    oauth_groups: rt,RT
 ```
+
+Set `rtorrent_rutorrent_auth_provider: oauth2-proxy` to render the older
+oauth2-proxy nginx snippets instead. `rtorrent_rutorrent_tinyauth_enabled` and
+`rtorrent_rutorrent_oauth2_proxy_enabled` are still accepted as compatibility
+inputs when `rtorrent_rutorrent_auth_provider` is unset.
 
 ## 1Password
 

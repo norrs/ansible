@@ -1,6 +1,6 @@
 services:
   tinyauth:
-    image: ghcr.io/tinyauthapp/tinyauth:v5
+    image: {{ tinyauth_image }}
     container_name: tinyauth
     restart: unless-stopped
     env_file: .env
@@ -16,7 +16,9 @@ services:
       - ./resources:/resources
       - ./oidc:/oidc:ro
     networks:
-      - webservers
+      webservers:
+        aliases:
+          - tinyauth
 
 networks:
   webservers:

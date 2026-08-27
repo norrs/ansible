@@ -7,14 +7,16 @@ ANSIBLE_OP_SERVICE_ACCOUNT_TOKEN_REF="${ANSIBLE_OP_SERVICE_ACCOUNT_TOKEN_REF:-op
 
 usage() {
   cat >&2 <<EOF
-Usage: $(basename "$0") [HOST] [PART] [ansible-playbook args...]
+Usage: $(basename "$0") [HOST] [PART|ordered-tags] [ansible-playbook args...]
 
 Run all or one tagged part of a host/top-level playbook.
 
-With no HOST or PART, the script opens an interactive menu. The first menu can
-select one or more host/top-level playbooks. If one playbook is selected, a
-second menu selects all or one tagged part. If multiple playbooks are selected,
-the selected playbooks are run in full in one ansible-playbook invocation.
+With no HOST or PART, the script first asks for a run mode. Single-part mode
+selects one host/top-level playbook and then all or one tagged part.
+Ordered-tags mode selects one host/top-level playbook and then several tags to
+run one at a time in the selected order. Full-playbook mode selects one or more
+host/top-level playbooks and runs them in full in one ansible-playbook
+invocation.
 If fzf is available, it is used for selection; set PLAY_HOST_SELECTOR=number to
 use the plain numbered menu.
 Interactive mode prompts whether to include --ask-become-pass unless extra
@@ -23,6 +25,8 @@ Selectable playbooks are discovered dynamically from playbooks/*/playbook.yaml,
 excluding playbooks that are imported by another top-level playbook.
 PART may be "all", a short tag name such as "wireguard", or the full tag name
 such as "diablo-wireguard".
+PART may also be "ordered-tags" or "tags" to choose several tags interactively
+and run them one at a time in the selected order.
 
 Examples:
   scripts/play-host.bash
@@ -30,6 +34,7 @@ Examples:
   scripts/play-host.bash diablo wireguard --ask-become-pass
   scripts/play-host.bash diablo beszel-agent --ask-become-pass
   scripts/play-host.bash diablo hosts-entry --ask-become-pass --check --diff
+  scripts/play-host.bash dalaran ordered-tags --ask-become-pass
 
 Set ANSIBLE_INVENTORY to override the inventory path.
 Set ANSIBLE_OP_SERVICE_ACCOUNT_TOKEN_REF to override the 1Password secret
@@ -238,6 +243,91 @@ choose_multiple_from() {
   done
 }
 
+choose_ordered_from() {
+  local prompt="$1"
+  shift
+  local choices=("$@")
+  local remaining=("${choices[@]}")
+  local selected=()
+  local choice picked done_choice
+
+  done_choice="[done] run selected"
+
+  if command -v fzf >/dev/null 2>&1 && [[ "${PLAY_HOST_SELECTOR:-fzf}" != "number" ]]; then
+    while [[ "${#remaining[@]}" -gt 0 ]]; do
+      picked="$(
+        {
+          printf '%s\n' "${done_choice}"
+          printf '%s\n' "${remaining[@]}"
+        } |
+          fzf --prompt="${prompt} " --height=40% --border \
+            --header="Selected: ${selected[*]:-(none)}"
+      )" || die "No selection made."
+
+      if [[ "${picked}" == "${done_choice}" ]]; then
+        break
+      fi
+
+      selected+=("${picked}")
+      local next=()
+      local item
+      for item in "${remaining[@]}"; do
+        [[ "${item}" == "${picked}" ]] || next+=("${item}")
+      done
+      remaining=("${next[@]}")
+    done
+
+    [[ "${#selected[@]}" -gt 0 ]] || die "No tags selected."
+    printf '%s\n' "${selected[@]}"
+    return 0
+  fi
+
+  local -A selected_index=()
+
+  while true; do
+    echo "${prompt}" >&2
+    echo "Selected: ${selected[*]:-(none)}" >&2
+    echo "   0) ${done_choice}" >&2
+
+    local index
+    local marker
+    for index in "${!choices[@]}"; do
+      marker=" "
+      if [[ -n "${selected_index[$index]:-}" ]]; then
+        marker="x"
+      fi
+      printf '  %2d) [%s] %s\n' "$((index + 1))" "${marker}" "${choices[$index]}" >&2
+    done
+
+    read -r -p "> " choice
+    choice="${choice//[[:space:]]/}"
+
+    if [[ "${choice}" == "0" || "${choice}" == "done" ]]; then
+      break
+    fi
+
+    if [[ "${choice}" =~ ^[0-9]+$ ]] &&
+      ((choice >= 1 && choice <= ${#choices[@]})); then
+      index="$((choice - 1))"
+      if [[ -n "${selected_index[$index]:-}" ]]; then
+        echo "${choices[$index]} is already selected." >&2
+        continue
+      fi
+      selected+=("${choices[$index]}")
+      selected_index[$index]=1
+      if [[ "${#selected[@]}" -eq "${#choices[@]}" ]]; then
+        break
+      fi
+      continue
+    fi
+
+    echo "Choose a number or 0/done." >&2
+  done
+
+  [[ "${#selected[@]}" -gt 0 ]] || die "No tags selected."
+  printf '%s\n' "${selected[@]}"
+}
+
 confirm_yes_no() {
   local prompt="$1"
   local answer
@@ -255,6 +345,10 @@ confirm_yes_no() {
       confirm_yes_no "${prompt}"
       ;;
   esac
+}
+
+is_ordered_tags_mode() {
+  [[ "${1}" == "ordered-tags" || "${1}" == "tags" ]]
 }
 
 resolve_part_tag() {
@@ -316,9 +410,36 @@ run_host_playbooks() {
   [[ "${1:-}" == "--" ]] || die "Internal error: missing argument separator."
   shift
 
-  load_1password_service_accountO
+  load_1password_service_account
 
   exec ansible-playbook -i "${INVENTORY}" "${playbooks[@]}" "$@"
+}
+
+run_ordered_tags() {
+  local host="$1"
+  shift
+  local playbook
+  local tags=()
+  local tag
+
+  while [[ $# -gt 0 && "${1}" != "--" ]]; do
+    tags+=("$1")
+    shift
+  done
+
+  [[ "${1:-}" == "--" ]] || die "Internal error: missing argument separator."
+  shift
+  [[ "${#tags[@]}" -gt 0 ]] || die "No tags selected."
+
+  playbook="$(playbook_for_host "${host}")" ||
+    die "No host playbook found: playbooks/${host}/playbook.yaml"
+
+  load_1password_service_account
+
+  for tag in "${tags[@]}"; do
+    echo "Running ${host}: ${tag}" >&2
+    ansible-playbook -i "${INVENTORY}" "${playbook}" --tags "${tag}" "$@"
+  done
 }
 
 if [[ "${1:-}" == "-h" || "${1:-}" == "--help" || "${1:-}" == "help" ]]; then
@@ -331,6 +452,7 @@ part=
 extra_args=()
 interactive_mode=0
 selected_hosts=()
+run_mode=
 
 if [[ $# -gt 0 && "${1}" != -* ]]; then
   host="$1"
@@ -352,10 +474,13 @@ if [[ -z "${host}" ]]; then
   interactive_mode=1
   mapfile -t host_playbooks < <(list_host_playbooks)
   [[ "${#host_playbooks[@]}" -gt 0 ]] || die "No host playbooks found."
-  mapfile -t selected_hosts < <(choose_multiple_from "Select host/top-level playbook(s):" "${host_playbooks[@]}")
-  [[ "${#selected_hosts[@]}" -gt 0 ]] || die "No selection made."
 
-  if [[ "${#selected_hosts[@]}" -gt 1 ]]; then
+  run_mode="$(choose_from "Select run mode:" "single part" "ordered tags" "full playbook(s)")"
+
+  if [[ "${run_mode}" == "full playbook(s)" ]]; then
+    mapfile -t selected_hosts < <(choose_multiple_from "Select host/top-level playbook(s):" "${host_playbooks[@]}")
+    [[ "${#selected_hosts[@]}" -gt 0 ]] || die "No selection made."
+
     if [[ "${#extra_args[@]}" -eq 0 ]]; then
       if confirm_yes_no "Include --ask-become-pass?"; then
         extra_args+=(--ask-become-pass)
@@ -364,7 +489,11 @@ if [[ -z "${host}" ]]; then
     run_host_playbooks "${selected_hosts[@]}" -- "${extra_args[@]}"
   fi
 
-  host="${selected_hosts[0]}"
+  host="$(choose_from "Select host/top-level playbook:" "${host_playbooks[@]}")"
+
+  if [[ "${run_mode}" == "ordered tags" ]]; then
+    part="ordered-tags"
+  fi
 fi
 
 playbook="$(playbook_for_host "${host}")" ||
@@ -379,10 +508,35 @@ if [[ -z "${part}" ]]; then
 
   interactive_mode=1
   parts=(all)
+  parts+=(ordered-tags)
   for tag in "${tags[@]}"; do
     parts+=("$(short_part_name "${host}" "${tag}")")
   done
   part="$(choose_from "Select part for ${host}:" "${parts[@]}")"
+fi
+
+if is_ordered_tags_mode "${part}"; then
+  is_interactive || die "ordered-tags mode requires an interactive terminal."
+
+  tag_parts=()
+  for tag in "${tags[@]}"; do
+    tag_parts+=("$(short_part_name "${host}" "${tag}")")
+  done
+
+  mapfile -t selected_parts < <(choose_ordered_from "Select tags for ${host} in run order:" "${tag_parts[@]}")
+  selected_tags=()
+  for selected_part in "${selected_parts[@]}"; do
+    selected_tags+=("$(resolve_part_tag "${host}" "${selected_part}" "${tags[@]}")")
+  done
+
+  if [[ "${#extra_args[@]}" -eq 0 ]]; then
+    if confirm_yes_no "Include --ask-become-pass?"; then
+      extra_args+=(--ask-become-pass)
+    fi
+  fi
+
+  run_ordered_tags "${host}" "${selected_tags[@]}" -- "${extra_args[@]}"
+  exit 0
 fi
 
 if [[ "${interactive_mode}" == "1" && "${#extra_args[@]}" -eq 0 ]]; then

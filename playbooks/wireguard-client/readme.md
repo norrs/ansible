@@ -77,6 +77,31 @@ fd00:example::10/128
 where the peer should be allowed only to reach Dalaran's Beszel hub URL/port and
 denied broad LAN access.
 
+## Dynamic endpoint DNS
+
+WireGuard resolves the peer `Endpoint` hostname when the interface is started or
+when the endpoint is set with `wg set`; it does not continuously re-resolve DNS.
+`PersistentKeepalive` keeps NAT mappings alive but does not update a stale
+endpoint IP after the server's public address changes.
+
+The playbook installs `wireguard-reresolve-<interface>.timer`, which periodically
+reapplies the configured endpoint:
+
+```text
+wg set <interface> peer <server_public_key> endpoint <endpoint_host>:<endpoint_port>
+```
+
+Useful checks on a client host:
+
+```bash
+systemctl status wg-quick@wg-monitoring --no-pager -l
+systemctl status wireguard-reresolve-wg-monitoring.timer --no-pager -l
+journalctl -u wireguard-reresolve-wg-monitoring.service -b --no-pager -n 50
+wg show wg-monitoring
+wg show wg-monitoring endpoints
+getent ahosts <endpoint_host>
+```
+
 ## Bootstrap order
 
 1. Install and configure the WireGuard client on the remote host.

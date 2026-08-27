@@ -69,6 +69,25 @@
     - never
     - dalaran-pocket-id-upgrade
 
+- name: "Dalaran - remove oauth2-proxy"
+  ansible.builtin.import_playbook: ../oauth2-proxy-remove/playbook.yaml
+  vars:
+    oauth2_proxy_remove_hosts: dalaran
+    oauth2_proxy_remove_hostname: "{{ tinyauth_hostname | default(oauth2_proxy_hostname | default('')) }}"
+  tags:
+    - dalaran-remove-oauth2-proxy
+    - dalaran-tinyauth
+
+- name: "Dalaran - tinyauth"
+  ansible.builtin.import_playbook: ../tinyauth/playbook.yaml
+  vars:
+    # Private values: tinyauth_hostname, pocket_id_hostname, beszel_hostname,
+    # and tinyauth_image are defined in private/group_vars/dalaran.yaml.
+    tinyauth_hosts: dalaran
+    tinyauth_nginx_validate_on_change: false
+  tags:
+    - dalaran-tinyauth
+
 - name: "Dalaran - oauth2-proxy"
   ansible.builtin.import_playbook: ../oauth2-proxy/playbook.yaml
   vars:
@@ -77,6 +96,7 @@
     oauth2_proxy_hosts: dalaran
     oauth2_proxy_nginx_validate_on_change: false
   tags:
+    - never
     - dalaran-oauth2-proxy
 
 - name: "Dalaran - remove TinyAuth"
@@ -109,10 +129,123 @@
   hosts: dalaran
   tags:
     - dalaran-nginx-validate
-    - dalaran-oauth2-proxy
-    - dalaran-rtorrent-rutorrent
-    - dalaran-beszel
   tasks:
+    - name: Inspect TinyAuth container before final nginx-proxy validation
+      become: true
+      ansible.builtin.command:
+        argv:
+          - docker
+          - container
+          - inspect
+          - tinyauth
+      register: dalaran_tinyauth_container_inspect
+      changed_when: false
+      failed_when: false
+      when: not ansible_check_mode
+
+    - name: Inspect nginx-proxy container before final nginx-proxy validation
+      become: true
+      ansible.builtin.command:
+        argv:
+          - docker
+          - container
+          - inspect
+          - nginx-proxy
+      register: dalaran_nginx_proxy_container_inspect
+      changed_when: false
+      failed_when: false
+      when: not ansible_check_mode
+
+    - name: Validate TinyAuth container exists before final nginx-proxy validation
+      ansible.builtin.assert:
+        that:
+          - dalaran_tinyauth_container_inspect.rc == 0
+        fail_msg: "TinyAuth container 'tinyauth' is missing; run the dalaran-tinyauth tag or start tinyauth before final nginx-proxy validation."
+      when: >
+        dalaran_tinyauth_container_inspect is defined
+        and
+        not (dalaran_tinyauth_container_inspect.skipped | default(false))
+
+    - name: Validate nginx-proxy container exists before final nginx-proxy validation
+      ansible.builtin.assert:
+        that:
+          - dalaran_nginx_proxy_container_inspect.rc == 0
+        fail_msg: "nginx-proxy container is missing; start nginx-proxy before final nginx-proxy validation."
+      when: >
+        dalaran_nginx_proxy_container_inspect is defined
+        and
+        not (dalaran_nginx_proxy_container_inspect.skipped | default(false))
+
+    - name: Read TinyAuth container state before final nginx-proxy validation
+      ansible.builtin.set_fact:
+        dalaran_tinyauth_container_state: "{{ dalaran_tinyauth_container_inspect.stdout | from_json | first }}"
+      when: >
+        dalaran_tinyauth_container_inspect is defined
+        and
+        not (dalaran_tinyauth_container_inspect.skipped | default(false))
+        and
+        dalaran_tinyauth_container_inspect.rc == 0
+
+    - name: Read nginx-proxy container state before final nginx-proxy validation
+      ansible.builtin.set_fact:
+        dalaran_nginx_proxy_container_state: "{{ dalaran_nginx_proxy_container_inspect.stdout | from_json | first }}"
+      when: >
+        dalaran_nginx_proxy_container_inspect is defined
+        and
+        not (dalaran_nginx_proxy_container_inspect.skipped | default(false))
+        and
+        dalaran_nginx_proxy_container_inspect.rc == 0
+
+    - name: Validate TinyAuth and nginx-proxy share the webservers network before final nginx-proxy validation
+      ansible.builtin.assert:
+        that:
+          - dalaran_tinyauth_container_state.State.Running | bool
+          - dalaran_nginx_proxy_container_state.State.Running | bool
+          - "'webservers' in (dalaran_tinyauth_container_state.NetworkSettings.Networks | default({}))"
+          - "'webservers' in (dalaran_nginx_proxy_container_state.NetworkSettings.Networks | default({}))"
+          - "'tinyauth' in (dalaran_tinyauth_container_state.NetworkSettings.Networks.webservers.Aliases | default([]))"
+        fail_msg: "TinyAuth container 'tinyauth' and nginx-proxy must both be running and attached to Docker network 'webservers' before final nginx-proxy validation; nginx resolves http://tinyauth:3000 through that shared network."
+      when: >
+        dalaran_tinyauth_container_state is defined
+        and
+        dalaran_nginx_proxy_container_state is defined
+
+    - name: Check nginx-proxy can resolve TinyAuth through Docker DNS before final nginx-proxy validation
+      become: true
+      ansible.builtin.shell:
+        cmd: |
+          docker exec nginx-proxy sh -c '
+            printf "command="
+            command -v getent || true
+            printf "\nresolv.conf:\n"
+            cat /etc/resolv.conf
+            printf "\nlookup:\n"
+            getent hosts tinyauth
+          '
+      register: dalaran_tinyauth_dns_lookup
+      changed_when: false
+      failed_when: false
+      retries: 12
+      delay: 5
+      until: dalaran_tinyauth_dns_lookup.rc == 0
+      when: not ansible_check_mode
+
+    - name: Validate nginx-proxy can resolve TinyAuth before final nginx-proxy validation
+      ansible.builtin.assert:
+        that:
+          - dalaran_tinyauth_dns_lookup.rc == 0
+        fail_msg: |-
+          nginx-proxy cannot resolve 'tinyauth' through Docker DNS.
+          rc={{ dalaran_tinyauth_dns_lookup.rc }}
+          stdout:
+          {{ dalaran_tinyauth_dns_lookup.stdout | default('') }}
+          stderr:
+          {{ dalaran_tinyauth_dns_lookup.stderr | default('') }}
+      when: >
+        dalaran_tinyauth_dns_lookup is defined
+        and
+        not (dalaran_tinyauth_dns_lookup.skipped | default(false))
+
     - name: Test nginx-proxy config after Dalaran vhost changes
       become: true
       ansible.builtin.command:

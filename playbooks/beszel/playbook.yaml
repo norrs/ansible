@@ -64,11 +64,25 @@
         - beszel_data
         - beszel_socket
 
-    - name: Set Beszel oauth2-proxy defaults
+    - name: Set Beszel auth defaults
       ansible.builtin.set_fact:
-        beszel_oauth2_proxy_enabled: "{{ beszel_oauth2_proxy_enabled | default(false) }}"
+        beszel_auth_provider: "{{ beszel_auth_provider | default('tinyauth' if (beszel_tinyauth_enabled | default(false) | bool) else ('oauth2-proxy' if (beszel_oauth2_proxy_enabled | default(false) | bool) else 'none')) }}"
+        beszel_tinyauth_internal_url: "{{ beszel_tinyauth_internal_url | default('http://tinyauth:3000') }}"
+        beszel_tinyauth_hostname: "{{ beszel_tinyauth_hostname | default(tinyauth_hostname | default(oauth2_proxy_hostname | default(''))) }}"
         beszel_oauth2_proxy_internal_url: "{{ beszel_oauth2_proxy_internal_url | default('http://oauth2-proxy:4180') }}"
         beszel_oauth2_proxy_allowed_groups: "{{ beszel_oauth2_proxy_allowed_groups | default('') }}"
+
+    - name: Validate Beszel auth provider
+      ansible.builtin.assert:
+        that:
+          - beszel_auth_provider in ['none', 'tinyauth', 'oauth2-proxy']
+          - beszel_auth_provider != 'tinyauth' or beszel_tinyauth_hostname | length > 0
+          - beszel_auth_provider != 'oauth2-proxy' or oauth2_proxy_hostname | default('') | length > 0
+        fail_msg: "Set beszel_auth_provider to one of none, tinyauth, or oauth2-proxy, and configure the selected provider hostname."
+
+    - name: Set Beszel auth enabled state
+      ansible.builtin.set_fact:
+        beszel_auth_enabled: "{{ beszel_auth_provider != 'none' }}"
 
     - name: "{{ beszel_service_dir }}/compose.yaml"
       become: true
@@ -88,29 +102,29 @@
         owner: root
         group: root
         mode: '0755'
-      when: beszel_oauth2_proxy_enabled | bool
+      when: beszel_auth_enabled | bool
 
     - name: Render Beszel nginx-proxy vhost snippet
       become: true
       ansible.builtin.template:
-        src: files/beszel/beszel-vhost.conf.j2
+        src: "files/beszel/beszel-vhost-{{ beszel_auth_provider }}.conf.j2"
         dest: "{{ beszel_nginx_vhost_dir | default('/service/nginx-proxy/vhost.d') }}/{{ beszel_hostname }}"
         owner: root
         group: root
         mode: '0644'
       register: beszel_vhost
-      when: beszel_oauth2_proxy_enabled | bool
+      when: beszel_auth_enabled | bool
 
     - name: Render Beszel nginx-proxy location snippet
       become: true
       ansible.builtin.template:
-        src: files/beszel/beszel-location.conf.j2
+        src: "files/beszel/beszel-location-{{ beszel_auth_provider }}.conf.j2"
         dest: "{{ beszel_nginx_vhost_dir | default('/service/nginx-proxy/vhost.d') }}/{{ beszel_hostname }}_location"
         owner: root
         group: root
         mode: '0644'
       register: beszel_vhost_location
-      when: beszel_oauth2_proxy_enabled | bool
+      when: beszel_auth_enabled | bool
 
     - name: Render Beszel agent-connect nginx-proxy location snippet
       become: true
@@ -121,7 +135,7 @@
         group: root
         mode: '0644'
       register: beszel_agent_connect_vhost_location
-      when: beszel_oauth2_proxy_enabled | bool
+      when: beszel_auth_enabled | bool
 
     - name: /etc/systemd/system/beszel.service
       become: true
@@ -162,7 +176,7 @@
         and
         beszel_nginx_validate_on_change | default(true) | bool
         and
-        beszel_oauth2_proxy_enabled | bool
+        beszel_auth_enabled | bool
         and (
           (beszel_vhost is defined and beszel_vhost.changed)
           or (beszel_vhost_location is defined and beszel_vhost_location.changed)
@@ -184,7 +198,7 @@
         and
         beszel_nginx_validate_on_change | default(true) | bool
         and
-        beszel_oauth2_proxy_enabled | bool
+        beszel_auth_enabled | bool
         and (
           (beszel_vhost is defined and beszel_vhost.changed)
           or (beszel_vhost_location is defined and beszel_vhost_location.changed)
