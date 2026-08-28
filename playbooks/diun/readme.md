@@ -57,6 +57,11 @@ Some notifier fields are version-specific. `diun_discord_render_embeds`,
 Diun v4.29 compatibility. Set them explicitly only on hosts running a Diun
 version that supports those fields.
 
+The compose template intentionally does not define a Docker healthcheck. Some
+published Diun examples use `diun healthcheck`, but the command is not available
+in all Diun builds and causes otherwise running containers to be marked
+unhealthy.
+
 Sources:
 
 - https://crazymax.dev/diun/install/docker/

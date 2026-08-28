@@ -1,6 +1,6 @@
 services:
   tinyauth:
-    image: {{ tinyauth_image }}
+    image: {{ tinyauth_image | default('ghcr.io/tinyauthapp/tinyauth:v5') }}
     container_name: tinyauth
     restart: unless-stopped
     env_file: .env

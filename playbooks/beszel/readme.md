@@ -28,6 +28,11 @@ uses nginx-proxy `VIRTUAL_HOST_MULTIPORTS` to generate a separate
 TinyAuth's authenticated email header to Beszel, and leaves the agent websocket
 path outside TinyAuth.
 
+The Beszel vhost also overrides `/logout` and `/sso-logout` to redirect through
+TinyAuth's `/logout` page. With the custom TinyAuth image configured for
+Pocket ID RP-initiated logout, this clears the TinyAuth session and then ends
+the Pocket ID OIDC session before returning to Beszel.
+
 Set `beszel_auth_provider: oauth2-proxy` to render the older oauth2-proxy
 nginx snippets instead. `beszel_tinyauth_enabled` and
 `beszel_oauth2_proxy_enabled` are still accepted as compatibility inputs when

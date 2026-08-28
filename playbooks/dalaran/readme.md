@@ -50,6 +50,8 @@ the custom `tinyauth_image` with RP-initiated logout support, redirects to
 Pocket ID's `/api/oidc/end-session` endpoint with the stored ID token hint.
 Register `https://auth.example.com/api/user/logout/callback` as the Pocket ID
 logout callback URL so Pocket ID can return to TinyAuth after SSO logout.
+For Beszel behind TinyAuth, the Beszel vhost overrides `/logout` and
+`/sso-logout` so those URLs start the same TinyAuth and Pocket ID logout flow.
 
 ## Playbook structure
 

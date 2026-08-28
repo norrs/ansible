@@ -5,7 +5,6 @@
     tinyauth_service_dir: /service/tinyauth
     tinyauth_op_vault: infra.norrs
     tinyauth_op_item: tinyauth
-    tinyauth_image: ghcr.io/tinyauthapp/tinyauth:v5
     tinyauth_beszel_client_secret_chars: "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_-"
     # Required private keys: tinyauth_hostname, pocket_id_hostname, beszel_hostname.
     # See private/group_vars/dalaran.yaml.
@@ -320,15 +319,35 @@
         and
         tinyauth_nginx_proxy_container_inspect.rc == 0
 
-    - name: Validate TinyAuth and nginx-proxy share the webservers network
+    - name: Read TinyAuth logs before nginx-proxy validation
+      become: true
+      ansible.builtin.shell:
+        cmd: docker logs --tail=80 tinyauth 2>&1 || true
+      register: tinyauth_container_logs
+      changed_when: false
+      failed_when: false
+      when: tinyauth_container_state is defined
+
+    - name: Validate TinyAuth is stable and nginx-proxy shares the webservers network
       ansible.builtin.assert:
         that:
+          - tinyauth_container_state.State.Status == 'running'
           - tinyauth_container_state.State.Running | bool
+          - not (tinyauth_container_state.State.Restarting | default(false) | bool)
+          - tinyauth_nginx_proxy_container_state.State.Status == 'running'
           - tinyauth_nginx_proxy_container_state.State.Running | bool
           - "'webservers' in (tinyauth_container_state.NetworkSettings.Networks | default({}))"
           - "'webservers' in (tinyauth_nginx_proxy_container_state.NetworkSettings.Networks | default({}))"
           - "'tinyauth' in (tinyauth_container_state.NetworkSettings.Networks.webservers.Aliases | default([]))"
-        fail_msg: "TinyAuth container 'tinyauth' and nginx-proxy must both be running and attached to Docker network 'webservers' before testing nginx-proxy; nginx resolves http://tinyauth:3000 through that shared network."
+        fail_msg: |-
+          TinyAuth container 'tinyauth' and nginx-proxy must both be stable and attached to Docker network 'webservers' before testing nginx-proxy.
+          tinyauth_status={{ tinyauth_container_state.State.Status | default('unknown') }}
+          tinyauth_restarting={{ tinyauth_container_state.State.Restarting | default('unknown') }}
+          tinyauth_exit_code={{ tinyauth_container_state.State.ExitCode | default('unknown') }}
+          tinyauth_error={{ tinyauth_container_state.State.Error | default('') }}
+          nginx_proxy_status={{ tinyauth_nginx_proxy_container_state.State.Status | default('unknown') }}
+          tinyauth_logs:
+          {{ tinyauth_container_logs.stdout | default('') }}
       when: >
         tinyauth_container_state is defined
         and
@@ -349,8 +368,8 @@
       register: tinyauth_dns_lookup
       changed_when: false
       failed_when: false
-      retries: 12
-      delay: 5
+      retries: 3
+      delay: 2
       until: tinyauth_dns_lookup.rc == 0
       when: >
         not ansible_check_mode
@@ -374,6 +393,8 @@
           {{ tinyauth_dns_lookup.stdout | default('') }}
           stderr:
           {{ tinyauth_dns_lookup.stderr | default('') }}
+          tinyauth_logs:
+          {{ tinyauth_container_logs.stdout | default('') }}
       when: >
         tinyauth_dns_lookup is defined
         and

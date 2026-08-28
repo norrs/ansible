@@ -17,3 +17,7 @@ location = /tinyauth/auth {
 location = /sso-logout {
     return 302 https://{{ beszel_tinyauth_hostname }}/logout?redirect_uri=$scheme://$host/;
 }
+
+location = /logout {
+    return 302 https://{{ beszel_tinyauth_hostname }}/logout?redirect_uri=$scheme://$host/;
+}

@@ -196,15 +196,35 @@
         and
         dalaran_nginx_proxy_container_inspect.rc == 0
 
-    - name: Validate TinyAuth and nginx-proxy share the webservers network before final nginx-proxy validation
+    - name: Read TinyAuth logs before final nginx-proxy validation
+      become: true
+      ansible.builtin.shell:
+        cmd: docker logs --tail=80 tinyauth 2>&1 || true
+      register: dalaran_tinyauth_container_logs
+      changed_when: false
+      failed_when: false
+      when: dalaran_tinyauth_container_state is defined
+
+    - name: Validate TinyAuth is stable and nginx-proxy shares the webservers network before final nginx-proxy validation
       ansible.builtin.assert:
         that:
+          - dalaran_tinyauth_container_state.State.Status == 'running'
           - dalaran_tinyauth_container_state.State.Running | bool
+          - not (dalaran_tinyauth_container_state.State.Restarting | default(false) | bool)
+          - dalaran_nginx_proxy_container_state.State.Status == 'running'
           - dalaran_nginx_proxy_container_state.State.Running | bool
           - "'webservers' in (dalaran_tinyauth_container_state.NetworkSettings.Networks | default({}))"
           - "'webservers' in (dalaran_nginx_proxy_container_state.NetworkSettings.Networks | default({}))"
           - "'tinyauth' in (dalaran_tinyauth_container_state.NetworkSettings.Networks.webservers.Aliases | default([]))"
-        fail_msg: "TinyAuth container 'tinyauth' and nginx-proxy must both be running and attached to Docker network 'webservers' before final nginx-proxy validation; nginx resolves http://tinyauth:3000 through that shared network."
+        fail_msg: |-
+          TinyAuth container 'tinyauth' and nginx-proxy must both be stable and attached to Docker network 'webservers' before final nginx-proxy validation.
+          tinyauth_status={{ dalaran_tinyauth_container_state.State.Status | default('unknown') }}
+          tinyauth_restarting={{ dalaran_tinyauth_container_state.State.Restarting | default('unknown') }}
+          tinyauth_exit_code={{ dalaran_tinyauth_container_state.State.ExitCode | default('unknown') }}
+          tinyauth_error={{ dalaran_tinyauth_container_state.State.Error | default('') }}
+          nginx_proxy_status={{ dalaran_nginx_proxy_container_state.State.Status | default('unknown') }}
+          tinyauth_logs:
+          {{ dalaran_tinyauth_container_logs.stdout | default('') }}
       when: >
         dalaran_tinyauth_container_state is defined
         and
@@ -225,8 +245,8 @@
       register: dalaran_tinyauth_dns_lookup
       changed_when: false
       failed_when: false
-      retries: 12
-      delay: 5
+      retries: 3
+      delay: 2
       until: dalaran_tinyauth_dns_lookup.rc == 0
       when: not ansible_check_mode
 
@@ -241,6 +261,8 @@
           {{ dalaran_tinyauth_dns_lookup.stdout | default('') }}
           stderr:
           {{ dalaran_tinyauth_dns_lookup.stderr | default('') }}
+          tinyauth_logs:
+          {{ dalaran_tinyauth_container_logs.stdout | default('') }}
       when: >
         dalaran_tinyauth_dns_lookup is defined
         and
