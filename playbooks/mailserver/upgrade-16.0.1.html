@@ -1,0 +1,1154 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>docker-mailserver 16.0.1 upgrade tracker</title>
+  <style>
+    :root {
+      color-scheme: light dark;
+      --bg: #f3f6f4;
+      --panel: #ffffff;
+      --panel-2: #eef3ef;
+      --text: #17201b;
+      --muted: #5c6b62;
+      --line: #ced8d1;
+      --green: #176b45;
+      --green-soft: #dff3e8;
+      --amber: #9a5c00;
+      --amber-soft: #fff0cc;
+      --red: #a52a2a;
+      --red-soft: #fde5e3;
+      --blue: #265f99;
+      --blue-soft: #e1eefb;
+      --code: #10231a;
+      --code-text: #e9f5ed;
+      --shadow: 0 10px 30px rgba(31, 52, 40, 0.08);
+    }
+
+    @media (prefers-color-scheme: dark) {
+      :root {
+        --bg: #101512;
+        --panel: #17201b;
+        --panel-2: #1d2922;
+        --text: #eef4f0;
+        --muted: #afbeb5;
+        --line: #34473b;
+        --green: #72d2a1;
+        --green-soft: #173829;
+        --amber: #ffc665;
+        --amber-soft: #3e2c10;
+        --red: #ff9b94;
+        --red-soft: #40201e;
+        --blue: #8ec7ff;
+        --blue-soft: #18324d;
+        --code: #09110d;
+        --code-text: #e9f5ed;
+        --shadow: 0 10px 30px rgba(0, 0, 0, 0.25);
+      }
+    }
+
+    * { box-sizing: border-box; }
+
+    body {
+      margin: 0;
+      background: var(--bg);
+      color: var(--text);
+      font: 15px/1.55 ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    }
+
+    a { color: var(--blue); }
+
+    .shell {
+      width: min(1180px, calc(100% - 32px));
+      margin: 32px auto 72px;
+    }
+
+    .hero {
+      position: relative;
+      overflow: hidden;
+      padding: 34px;
+      border: 1px solid var(--line);
+      border-radius: 22px;
+      background: var(--panel);
+      box-shadow: var(--shadow);
+    }
+
+    .hero::after {
+      content: "";
+      position: absolute;
+      inset: auto -80px -120px auto;
+      width: 300px;
+      height: 300px;
+      border-radius: 50%;
+      background: color-mix(in srgb, var(--green) 14%, transparent);
+      pointer-events: none;
+    }
+
+    h1, h2, h3 { line-height: 1.18; }
+    h1 { margin: 8px 0 10px; font-size: clamp(2rem, 5vw, 3.6rem); letter-spacing: -0.045em; }
+    h2 { margin: 0; font-size: 1.45rem; letter-spacing: -0.02em; }
+    h3 { margin: 0; font-size: 1.06rem; }
+    p { margin: 8px 0; }
+
+    .eyebrow {
+      color: var(--green);
+      font-weight: 800;
+      letter-spacing: .12em;
+      text-transform: uppercase;
+      font-size: .75rem;
+    }
+
+    .route {
+      display: flex;
+      align-items: center;
+      flex-wrap: wrap;
+      gap: 10px;
+      margin-top: 20px;
+      font-size: 1.05rem;
+      font-weight: 750;
+    }
+
+    .version {
+      padding: 7px 11px;
+      border-radius: 9px;
+      background: var(--panel-2);
+      border: 1px solid var(--line);
+      font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
+    }
+
+    .arrow { color: var(--muted); }
+
+    .summary-grid {
+      display: grid;
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+      gap: 12px;
+      margin-top: 26px;
+    }
+
+    .metric {
+      padding: 15px;
+      border: 1px solid var(--line);
+      border-radius: 13px;
+      background: var(--panel-2);
+    }
+
+    .metric span { display: block; color: var(--muted); font-size: .78rem; }
+    .metric strong { display: block; margin-top: 2px; font-size: 1.16rem; }
+
+    .progress-track {
+      height: 10px;
+      margin-top: 14px;
+      overflow: hidden;
+      border-radius: 99px;
+      background: var(--line);
+    }
+
+    .progress-fill {
+      width: 0;
+      height: 100%;
+      background: var(--green);
+      transition: width .2s ease;
+    }
+
+    .toolbar {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      align-items: center;
+      margin-top: 16px;
+    }
+
+    button, .file-button {
+      appearance: none;
+      border: 1px solid var(--line);
+      border-radius: 9px;
+      padding: 8px 11px;
+      background: var(--panel);
+      color: var(--text);
+      font: inherit;
+      font-weight: 700;
+      cursor: pointer;
+    }
+
+    button:hover, .file-button:hover { border-color: var(--green); }
+    button.danger:hover { border-color: var(--red); color: var(--red); }
+    .file-button input { display: none; }
+    .save-state { margin-left: auto; color: var(--muted); font-size: .82rem; }
+
+    .section {
+      margin-top: 24px;
+      padding: 25px;
+      border: 1px solid var(--line);
+      border-radius: 18px;
+      background: var(--panel);
+      box-shadow: var(--shadow);
+    }
+
+    .section-head {
+      display: flex;
+      align-items: baseline;
+      justify-content: space-between;
+      gap: 14px;
+      margin-bottom: 17px;
+    }
+
+    .muted { color: var(--muted); }
+    .small { font-size: .84rem; }
+
+    .callout {
+      margin: 14px 0;
+      padding: 14px 16px;
+      border-left: 4px solid var(--amber);
+      border-radius: 8px;
+      background: var(--amber-soft);
+    }
+
+    .callout.good { border-color: var(--green); background: var(--green-soft); }
+    .callout.danger { border-color: var(--red); background: var(--red-soft); }
+
+    .findings {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 12px;
+    }
+
+    .finding {
+      padding: 15px;
+      border: 1px solid var(--line);
+      border-radius: 12px;
+      background: var(--panel-2);
+    }
+
+    .finding p { color: var(--muted); }
+
+    .risk-table { width: 100%; border-collapse: collapse; }
+    .risk-table th, .risk-table td { padding: 12px; border-bottom: 1px solid var(--line); text-align: left; vertical-align: top; }
+    .risk-table th { color: var(--muted); font-size: .78rem; text-transform: uppercase; letter-spacing: .06em; }
+
+    .tag {
+      display: inline-block;
+      padding: 3px 8px;
+      border-radius: 99px;
+      font-size: .76rem;
+      font-weight: 800;
+    }
+
+    .tag.low { color: var(--green); background: var(--green-soft); }
+    .tag.medium { color: var(--amber); background: var(--amber-soft); }
+    .tag.high { color: var(--red); background: var(--red-soft); }
+
+    .steps { display: grid; gap: 13px; }
+
+    .step {
+      padding: 17px;
+      border: 1px solid var(--line);
+      border-radius: 14px;
+      background: var(--panel);
+    }
+
+    .step[data-status="done"] { border-left: 5px solid var(--green); }
+    .step[data-status="doing"] { border-left: 5px solid var(--blue); }
+    .step[data-status="blocked"] { border-left: 5px solid var(--red); }
+
+    .step-top {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) 126px;
+      gap: 14px;
+      align-items: start;
+    }
+
+    .step-number {
+      display: inline-grid;
+      place-items: center;
+      width: 29px;
+      height: 29px;
+      margin-right: 8px;
+      border-radius: 50%;
+      background: var(--panel-2);
+      color: var(--green);
+      font-weight: 850;
+    }
+
+    select, input[type="text"], input[type="date"], textarea {
+      width: 100%;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      padding: 8px 9px;
+      background: var(--panel-2);
+      color: var(--text);
+      font: inherit;
+    }
+
+    select { font-weight: 750; }
+    textarea { min-height: 76px; resize: vertical; }
+
+    .step-body { margin: 13px 0 0 39px; }
+    .acceptance { margin: 10px 0; padding-left: 20px; }
+    .acceptance li { margin: 4px 0; }
+
+    details {
+      margin-top: 11px;
+      border-top: 1px solid var(--line);
+      padding-top: 10px;
+    }
+
+    summary { cursor: pointer; color: var(--blue); font-weight: 750; }
+
+    .command {
+      position: relative;
+      margin: 9px 0;
+      padding: 13px 46px 13px 14px;
+      overflow-x: auto;
+      border-radius: 10px;
+      background: var(--code);
+      color: var(--code-text);
+      font: 13px/1.55 ui-monospace, SFMono-Regular, Consolas, monospace;
+      white-space: pre-wrap;
+      word-break: break-word;
+    }
+
+    .copy {
+      position: absolute;
+      top: 7px;
+      right: 7px;
+      padding: 4px 7px;
+      border-color: #355442;
+      background: #183126;
+      color: #e9f5ed;
+      font-size: .72rem;
+    }
+
+    .fields {
+      display: grid;
+      grid-template-columns: 1fr 170px;
+      gap: 9px;
+      margin-top: 12px;
+    }
+
+    .fields label { display: grid; gap: 4px; color: var(--muted); font-size: .78rem; }
+    .fields .notes { grid-column: 1 / -1; }
+
+    .gate {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 12px;
+    }
+
+    .gate-card { padding: 15px; border-radius: 12px; border: 1px solid var(--line); }
+    .gate-card.go { background: var(--green-soft); }
+    .gate-card.stop { background: var(--red-soft); }
+    .gate-card ul { margin: 8px 0 0; padding-left: 20px; }
+
+    .decision-grid { display: grid; grid-template-columns: 180px 1fr; gap: 10px; align-items: start; }
+    .decision-grid label { color: var(--muted); font-size: .82rem; }
+
+    footer { padding: 20px 4px; color: var(--muted); font-size: .82rem; }
+
+    @media (max-width: 780px) {
+      .summary-grid, .findings, .gate { grid-template-columns: 1fr 1fr; }
+      .risk-table, .risk-table tbody, .risk-table tr, .risk-table td { display: block; }
+      .risk-table thead { display: none; }
+      .risk-table tr { padding: 10px 0; border-bottom: 1px solid var(--line); }
+      .risk-table td { padding: 5px 0; border: 0; }
+      .risk-table td::before { content: attr(data-label) ": "; color: var(--muted); font-weight: 750; }
+    }
+
+    @media (max-width: 560px) {
+      .shell { width: min(100% - 18px, 1180px); margin-top: 10px; }
+      .hero, .section { padding: 18px; border-radius: 14px; }
+      .summary-grid, .findings, .gate, .fields, .decision-grid { grid-template-columns: 1fr; }
+      .step-top { grid-template-columns: 1fr; }
+      .step-body { margin-left: 0; }
+      .fields .notes { grid-column: auto; }
+      .save-state { width: 100%; margin-left: 0; }
+    }
+
+    @media print {
+      body { background: #fff; color: #111; }
+      .shell { width: 100%; margin: 0; }
+      .hero, .section { box-shadow: none; break-inside: avoid; }
+      .toolbar, .copy { display: none !important; }
+      details { display: block; }
+      details > * { display: block; }
+      .command { background: #eee; color: #111; white-space: pre-wrap; }
+    }
+  </style>
+</head>
+<body>
+  <main class="shell">
+    <header class="hero">
+      <div class="eyebrow">Production change plan · diablo.norrs.no</div>
+      <h1>Mailserver upgrade tracker</h1>
+      <p class="muted">A repository-aware runbook for the Debian 13 / Dovecot 2.4 transition. State is saved automatically in this browser; export it before changing browsers or machines.</p>
+      <div class="route">
+        <span class="version">15.1</span>
+        <span class="arrow">→</span>
+        <span class="version">16.0.1</span>
+        <span class="tag medium">major upgrade</span>
+      </div>
+
+      <div class="summary-grid">
+        <div class="metric"><span>Completed</span><strong id="completed-count">0 / 0</strong></div>
+        <div class="metric"><span>In progress</span><strong id="doing-count">0</strong></div>
+        <div class="metric"><span>Blocked</span><strong id="blocked-count">0</strong></div>
+        <div class="metric"><span>Overall gate</span><strong id="overall-gate">Not ready</strong></div>
+      </div>
+      <div class="progress-track" aria-label="Upgrade progress"><div class="progress-fill" id="progress-fill"></div></div>
+
+      <div class="toolbar">
+        <button type="button" id="export-state">Export state</button>
+        <label class="file-button">Import state<input id="import-state" type="file" accept="application/json"></label>
+        <button type="button" id="print-plan">Print / PDF</button>
+        <button type="button" class="danger" id="reset-state">Reset tracker</button>
+        <span class="save-state" id="save-state">Not yet saved</span>
+      </div>
+    </header>
+
+    <section class="section" aria-labelledby="recommendation-title">
+      <div class="section-head">
+        <h2 id="recommendation-title">Recommendation</h2>
+        <span class="tag medium">controlled maintenance window</span>
+      </div>
+      <div class="callout good">
+        Proceed to <strong>16.0.1</strong>, not 16.0.0. The patch release fixes Dovecot quota handling for aliases that forward externally, which is directly relevant because this deployment has <code>ENABLE_QUOTAS=1</code> and manages aliases.
+      </div>
+      <p>Pin the exact <code>16.0.1</code> tag for the first deployment. Keep the existing <code>15.1</code> image locally until the observation window is complete. Do not combine this with unrelated mail configuration changes.</p>
+      <div class="callout danger">
+        The v16 base changes from Debian 12 to Debian 13 and Dovecot 2.3 to 2.4. Treat this as a migration even though the application data remains on bind mounts.
+      </div>
+    </section>
+
+    <section class="section" aria-labelledby="audit-title">
+      <div class="section-head">
+        <h2 id="audit-title">Repository audit</h2>
+        <span class="muted small">Inspected 2026-09-04</span>
+      </div>
+      <div class="findings">
+        <article class="finding">
+          <h3>Dovecot exposure is limited</h3>
+          <p>No custom <code>dovecot.cf</code>, LDAP, FTS/Solr/Xapian, mail-crypt, or <code>dhparams.pem</code> files were found. The largest v16 breaking changes therefore do not directly map to tracked configuration.</p>
+        </article>
+        <article class="finding">
+          <h3>Custom Postfix needs a smoke test</h3>
+          <p><code>postfix-main.cf</code> binds outbound SMTP to the server IPv4/IPv6 addresses. <code>postfix-master.cf</code> forces Amavis handoff over loopback. Preserve both and validate configuration plus outbound delivery.</p>
+        </article>
+        <article class="finding">
+          <h3>Fail2Ban is customized</h3>
+          <p>The private jail uses <code>nftables-allports</code>, enables Dovecot, Postfix <code>mode=extra</code>, and a long-lived manual jail. v16 updates Fail2Ban and pins Dovecot/Postfix jails to file backends; verify all three jails load.</p>
+        </article>
+        <article class="finding">
+          <h3>Use the new healthcheck</h3>
+          <p>The Compose file overrides health with an <code>ss | grep</code> probe and zero retries. v16 includes <code>dms-healthcheck</code>; remove the override so Docker uses the image-defined probe.</p>
+        </article>
+        <article class="finding">
+          <h3>Spam and quota paths are active</h3>
+          <p>ClamAV, Amavis, SpamAssassin, Postgrey, junk movement, and quotas are enabled. Test inbound spam classification, normal delivery, and quota lookup—not only SMTP connectivity.</p>
+        </article>
+        <article class="finding">
+          <h3>Environment template is stale</h3>
+          <p><code>DMS_DEBUG</code> was removed long ago and <code>ONE_DIR</code> is absent from the v16 template. The removed v16 variable <code>SA_SPAM_SUBJECT</code> appears only in a comment, not as configured state. Rebase comments/options while preserving intentional values.</p>
+        </article>
+      </div>
+    </section>
+
+    <section class="section" aria-labelledby="changes-title">
+      <div class="section-head">
+        <h2 id="changes-title">v16 changes mapped to this deployment</h2>
+      </div>
+      <table class="risk-table">
+        <thead><tr><th>Change</th><th>Local exposure</th><th>Action</th><th>Risk</th></tr></thead>
+        <tbody>
+          <tr>
+            <td data-label="Change">Debian 12 → 13; all bundled services updated</td>
+            <td data-label="Local exposure">Postfix, Dovecot, Fail2Ban, Amavis, SpamAssassin and ClamAV are active.</td>
+            <td data-label="Action">Capture baseline, deploy in a window, then exercise every mail path.</td>
+            <td data-label="Risk"><span class="tag high">high</span></td>
+          </tr>
+          <tr>
+            <td data-label="Change">Dovecot 2.3 → 2.4</td>
+            <td data-label="Local exposure">No tracked custom Dovecot/LDAP/FTS config; IMAP and quota remain active.</td>
+            <td data-label="Action">Validate <code>doveconf -n</code>, login, folder access and quota behavior.</td>
+            <td data-label="Risk"><span class="tag medium">medium</span></td>
+          </tr>
+          <tr>
+            <td data-label="Change"><code>SA_SPAM_SUBJECT</code> removed</td>
+            <td data-label="Local exposure">Not configured; only an old comment mentions it.</td>
+            <td data-label="Action">Update the comment/template; use <code>SPAM_SUBJECT</code> only if a prefix is desired.</td>
+            <td data-label="Risk"><span class="tag low">low</span></td>
+          </tr>
+          <tr>
+            <td data-label="Change"><code>dhparams.pem</code> ignored; DHE removed from authenticated ports</td>
+            <td data-label="Local exposure">No custom DH file found; TLS level is default modern.</td>
+            <td data-label="Action">No migration. Test TLS on 25, 465, 587, 143 and 993.</td>
+            <td data-label="Risk"><span class="tag low">low</span></td>
+          </tr>
+          <tr>
+            <td data-label="Change">Fail2Ban 1.1.1 and file-backed Dovecot/Postfix jails</td>
+            <td data-label="Local exposure">Custom jail and <code>NET_ADMIN</code> are present.</td>
+            <td data-label="Action">Run config test and inspect <code>dovecot</code>, <code>postfix</code>, and <code>custom</code> status.</td>
+            <td data-label="Risk"><span class="tag medium">medium</span></td>
+          </tr>
+          <tr>
+            <td data-label="Change">Image-defined <code>dms-healthcheck</code></td>
+            <td data-label="Local exposure">Compose currently overrides it.</td>
+            <td data-label="Action">Remove the custom block and use Docker's inherited healthcheck.</td>
+            <td data-label="Risk"><span class="tag low">low</span></td>
+          </tr>
+          <tr>
+            <td data-label="Change">v16.0.1 quota/alias fix</td>
+            <td data-label="Local exposure"><code>ENABLE_QUOTAS=1</code>; aliases are managed by Ansible.</td>
+            <td data-label="Action">Confirm aliases, including any external recipient, accept mail after upgrade.</td>
+            <td data-label="Risk"><span class="tag medium">medium</span></td>
+          </tr>
+        </tbody>
+      </table>
+    </section>
+
+    <section class="section" aria-labelledby="plan-title">
+      <div class="section-head">
+        <h2 id="plan-title">Execution plan</h2>
+        <span class="muted small">Change each item to Done as evidence is collected</span>
+      </div>
+
+      <div class="steps">
+        <article class="step" data-step-id="docs" data-status="done">
+          <div class="step-top">
+            <h3><span class="step-number">1</span>Review official v16 documentation</h3>
+            <select class="status" aria-label="Status for documentation review">
+              <option value="todo">To do</option><option value="doing">In progress</option><option value="done">Done</option><option value="blocked">Blocked</option>
+            </select>
+          </div>
+          <div class="step-body">
+            <ul class="acceptance">
+              <li>Read the v16.0.0 and v16.0.1 changelog sections.</li>
+              <li>Confirm the release image is <code>ghcr.io/docker-mailserver/docker-mailserver:16.0.1</code>.</li>
+            </ul>
+            <div class="fields">
+              <label>Owner<input class="owner" type="text" value="Codex"></label>
+              <label>Completed<input class="date" type="date" value="2026-09-04"></label>
+              <label class="notes">Evidence / notes<textarea class="notes-input">Official release notes reviewed. v16.0.1 is the preferred target because it includes post-16.0.0 quota and Dovecot fixes.</textarea></label>
+            </div>
+          </div>
+        </article>
+
+        <article class="step" data-step-id="repo-audit" data-status="done">
+          <div class="step-top">
+            <h3><span class="step-number">2</span>Audit tracked deployment configuration</h3>
+            <select class="status" aria-label="Status for repository audit">
+              <option value="todo">To do</option><option value="doing">In progress</option><option value="done">Done</option><option value="blocked">Blocked</option>
+            </select>
+          </div>
+          <div class="step-body">
+            <ul class="acceptance">
+              <li>Identify custom Dovecot, Postfix, Fail2Ban, TLS, LDAP and spam configuration.</li>
+              <li>Compare tracked <code>mailserver.env</code> and Compose settings with the v16.0.1 examples.</li>
+            </ul>
+            <div class="fields">
+              <label>Owner<input class="owner" type="text" value="Codex"></label>
+              <label>Completed<input class="date" type="date" value="2026-09-04"></label>
+              <label class="notes">Evidence / notes<textarea class="notes-input">No custom Dovecot/LDAP/FTS/mail-crypt/DH files found. Custom Postfix and Fail2Ban files require targeted validation. Current Compose and Ansible syntax validate.</textarea></label>
+            </div>
+          </div>
+        </article>
+
+        <article class="step" data-step-id="window" data-status="done">
+          <div class="step-top">
+            <h3><span class="step-number">3</span>Schedule and freeze the change</h3>
+            <select class="status" aria-label="Status for maintenance window">
+              <option value="todo">To do</option><option value="doing">In progress</option><option value="done">Done</option><option value="blocked">Blocked</option>
+            </select>
+          </div>
+          <div class="step-body">
+            <ul class="acceptance">
+              <li>Choose a low-volume maintenance window and announce expected SMTP/IMAP interruption.</li>
+              <li>Freeze unrelated Ansible, DNS, certificate and mail configuration changes.</li>
+              <li>Assign an operator and rollback decision-maker.</li>
+            </ul>
+            <div class="fields">
+              <label>Owner<input class="owner" type="text"></label>
+              <label>Completed<input class="date" type="date"></label>
+              <label class="notes">Window / notes<textarea class="notes-input" placeholder="Planned start, duration, operator, communication..."></textarea></label>
+            </div>
+          </div>
+        </article>
+
+        <article class="step" data-step-id="baseline" data-status="done">
+          <div class="step-top">
+            <h3><span class="step-number">4</span>Capture the live 15.1 baseline</h3>
+            <select class="status" aria-label="Status for baseline capture">
+              <option value="todo">To do</option><option value="doing">In progress</option><option value="done">Done</option><option value="blocked">Blocked</option>
+            </select>
+          </div>
+          <div class="step-body">
+            <ul class="acceptance">
+              <li>Container is healthy; SMTP, submission and IMAP work before the change.</li>
+              <li>Record version, image ID, queue depth, accounts, aliases, disk space and certificate dates.</li>
+              <li>Save effective Postfix, Dovecot and Fail2Ban configuration output outside the container.</li>
+            </ul>
+            <details><summary>Suggested baseline commands on diablo</summary>
+              <div class="command">cd /opt/dms
+sudo docker compose ps
+sudo docker inspect --format '{{.Config.Image}} {{.Image}} {{if .State.Health}}{{.State.Health.Status}}{{end}}' mailserver
+sudo docker logs --since 30m mailserver
+sudo docker exec mailserver postqueue -p
+sudo docker exec mailserver setup email list
+sudo docker exec mailserver setup alias list
+sudo docker exec mailserver postconf -n
+sudo docker exec mailserver doveconf -n
+sudo docker exec mailserver fail2ban-client status
+sudo docker exec mailserver fail2ban-client status dovecot
+sudo docker exec mailserver fail2ban-client status postfix
+sudo docker exec mailserver fail2ban-client status custom
+df -h /opt/dms
+sudo docker exec mailserver openssl x509 -in /etc/letsencrypt/live/diablo.norrs.no/fullchain.pem -noout -subject -issuer -dates<button class="copy" type="button">Copy</button></div>
+            </details>
+            <div class="fields">
+              <label>Owner<input class="owner" type="text"></label>
+              <label>Completed<input class="date" type="date"></label>
+              <label class="notes">Evidence / notes<textarea class="notes-input" placeholder="Baseline location, queue depth, image ID, certificate expiry..."></textarea></label>
+            </div>
+          </div>
+        </article>
+
+        <article class="step" data-step-id="backup" data-status="done">
+          <div class="step-top">
+            <h3><span class="step-number">5</span>Create and verify a rollback backup</h3>
+            <select class="status" aria-label="Status for backup">
+              <option value="todo">To do</option><option value="doing">In progress</option><option value="done">Done</option><option value="blocked">Blocked</option>
+            </select>
+          </div>
+          <div class="step-body">
+            <ul class="acceptance">
+              <li>The Postfix queue is empty or every queued message is accounted for.</li>
+              <li>A timestamped archive contains config, mail data, state and logs.</li>
+              <li><code>tar -tzf</code> can read the archive and a checksum is recorded.</li>
+              <li>The existing 15.1 image remains present locally.</li>
+            </ul>
+            <details><summary>Cold-backup commands on diablo</summary>
+              <div class="command">cd /opt/dms
+sudo docker exec mailserver postqueue -p
+sudo systemctl stop mailserver
+sudo tar --gzip --create --file "/opt/dms-backup-$(date +%F-%H%M)-pre-16.0.1.tar.gz" -C /opt/dms docker-data/dms
+sudo tar --list --gzip --file /opt/dms-backup-YYYY-MM-DD-HHMM-pre-16.0.1.tar.gz | head
+sudo sha256sum /opt/dms-backup-YYYY-MM-DD-HHMM-pre-16.0.1.tar.gz
+sudo systemctl start mailserver
+sudo docker image inspect ghcr.io/docker-mailserver/docker-mailserver:15.1 --format '{{.Id}}'<button class="copy" type="button">Copy</button></div>
+            </details>
+            <div class="callout">Replace the timestamp placeholder in verification commands with the actual archive name. A cold backup creates a short extra interruption but avoids a changing Maildir/state tree during the archive.</div>
+            <div class="fields">
+              <label>Owner<input class="owner" type="text"></label>
+              <label>Completed<input class="date" type="date"></label>
+              <label class="notes">Evidence / notes<textarea class="notes-input" placeholder="Backup path, size, SHA-256, old image ID..."></textarea></label>
+            </div>
+          </div>
+        </article>
+
+        <article class="step" data-step-id="prepare-change" data-status="done">
+          <div class="step-top">
+            <h3><span class="step-number">6</span>Prepare the isolated repository change</h3>
+            <select class="status" aria-label="Status for preparing repository change">
+              <option value="todo">To do</option><option value="doing">In progress</option><option value="done">Done</option><option value="blocked">Blocked</option>
+            </select>
+          </div>
+          <div class="step-body">
+            <ul class="acceptance">
+              <li>Change only the image tag from <code>15.1</code> to exact <code>16.0.1</code>.</li>
+              <li>Remove the Compose <code>healthcheck</code> override to inherit <code>dms-healthcheck</code>.</li>
+              <li>Reconcile <code>mailserver.env</code> with the v16.0.1 template while preserving deliberate values.</li>
+              <li>Remove obsolete <code>DMS_DEBUG</code> and <code>ONE_DIR</code>; keep all four persistent bind mounts.</li>
+              <li>Do not add <code>SA_SPAM_SUBJECT</code>; use <code>SPAM_SUBJECT</code> only if a subject prefix is desired.</li>
+              <li>Review and commit a mailserver-only diff so rollback is one revert.</li>
+            </ul>
+            <details><summary>Local validation commands</summary>
+              <div class="command">git diff -- playbooks/mailserver
+docker compose -f playbooks/mailserver/files/mailserver/compose.yaml config --quiet
+ansible-playbook --syntax-check -i inventory.yaml playbooks/mailserver/playbook.yaml<button class="copy" type="button">Copy</button></div>
+            </details>
+            <div class="fields">
+              <label>Owner<input class="owner" type="text"></label>
+              <label>Completed<input class="date" type="date"></label>
+              <label class="notes">Commit / notes<textarea class="notes-input" placeholder="Commit hash, reviewed diff, intentional env deviations..."></textarea></label>
+            </div>
+          </div>
+        </article>
+
+        <article class="step" data-step-id="preflight" data-status="done">
+          <div class="step-top">
+            <h3><span class="step-number">7</span>Run the go / no-go preflight</h3>
+            <select class="status" aria-label="Status for preflight">
+              <option value="todo">To do</option><option value="doing">In progress</option><option value="done">Done</option><option value="blocked">Blocked</option>
+            </select>
+          </div>
+          <div class="step-body">
+            <ul class="acceptance">
+              <li>Backup and checksum are verified.</li>
+              <li>Baseline mail flow is healthy and the queue is drained.</li>
+              <li>At least 3 GiB free disk space and enough memory/swap for ClamAV are available.</li>
+              <li>The v16.0.1 image can be pulled before downtime starts.</li>
+              <li>Operator has console/SSH access independent of email.</li>
+            </ul>
+            <details><summary>Pre-pull and resource checks on diablo</summary>
+              <div class="command">sudo docker pull ghcr.io/docker-mailserver/docker-mailserver:16.0.1
+sudo docker image inspect ghcr.io/docker-mailserver/docker-mailserver:16.0.1 --format '{{.Id}}'
+df -h /opt/dms
+free -h
+sudo docker exec mailserver postqueue -p<button class="copy" type="button">Copy</button></div>
+            </details>
+            <div class="fields">
+              <label>Owner<input class="owner" type="text"></label>
+              <label>Completed<input class="date" type="date"></label>
+              <label class="notes">Decision / notes<textarea class="notes-input" placeholder="GO or NO-GO, image ID, free disk, queue state..."></textarea></label>
+            </div>
+          </div>
+        </article>
+
+        <article class="step" data-step-id="deploy" data-status="done">
+          <div class="step-top">
+            <h3><span class="step-number">8</span>Deploy 16.0.1 through Ansible</h3>
+            <select class="status" aria-label="Status for deployment">
+              <option value="todo">To do</option><option value="doing">In progress</option><option value="done">Done</option><option value="blocked">Blocked</option>
+            </select>
+          </div>
+          <div class="step-body">
+            <ul class="acceptance">
+              <li>Run only the Diablo mailserver tag.</li>
+              <li>Ansible completes without failed or unreachable tasks.</li>
+              <li>The systemd unit recreates the container rather than merely restarting it.</li>
+              <li>Record actual start and finish times.</li>
+            </ul>
+            <details open><summary>Deployment command from the Ansible repository</summary>
+              <div class="command">scripts/play-host.bash diablo mailserver --ask-become-pass<button class="copy" type="button">Copy</button></div>
+            </details>
+            <div class="callout">The DMS documentation requires <code>docker compose down</code> / <code>up</code> or a force-recreate. This repository's systemd unit uses <code>down</code> for stop and <code>up --force-recreate</code> for start, satisfying that requirement.</div>
+            <div class="fields">
+              <label>Owner<input class="owner" type="text"></label>
+              <label>Completed<input class="date" type="date"></label>
+              <label class="notes">Evidence / notes<textarea class="notes-input" placeholder="Start/end, Ansible recap, new container ID..."></textarea></label>
+            </div>
+          </div>
+        </article>
+
+        <article class="step" data-step-id="startup" data-status="done">
+          <div class="step-top">
+            <h3><span class="step-number">9</span>Validate startup and effective configuration</h3>
+            <select class="status" aria-label="Status for startup validation">
+              <option value="todo">To do</option><option value="doing">In progress</option><option value="done">Done</option><option value="blocked">Blocked</option>
+            </select>
+          </div>
+          <div class="step-body">
+            <ul class="acceptance">
+              <li>Logs show the 16.0.1 welcome line and no fatal setup errors.</li>
+              <li>Container reaches healthy state using <code>dms-healthcheck</code>.</li>
+              <li>Postfix and Dovecot configuration commands succeed.</li>
+              <li>Fail2Ban loads the Dovecot, Postfix and custom jails.</li>
+              <li>Accounts and aliases match the baseline.</li>
+            </ul>
+            <details open><summary>Startup checks on diablo</summary>
+              <div class="command">cd /opt/dms
+sudo systemctl --no-pager --full status mailserver
+sudo docker compose ps
+sudo docker inspect --format '{{.Config.Image}} {{.Image}} {{if .State.Health}}{{.State.Health.Status}}{{end}}' mailserver
+sudo docker inspect --format '{{json .Config.Healthcheck.Test}}' mailserver
+sudo docker logs --since 20m mailserver
+sudo docker exec mailserver dms-healthcheck
+sudo docker exec mailserver postfix check
+sudo docker exec mailserver doveconf -n
+sudo docker exec mailserver fail2ban-client status dovecot
+sudo docker exec mailserver fail2ban-client status postfix
+sudo docker exec mailserver fail2ban-client status custom
+sudo docker exec mailserver setup email list
+sudo docker exec mailserver setup alias list<button class="copy" type="button">Copy</button></div>
+            </details>
+            <div class="fields">
+              <label>Owner<input class="owner" type="text"></label>
+              <label>Completed<input class="date" type="date"></label>
+              <label class="notes">Evidence / notes<textarea class="notes-input" placeholder="Health transition, warnings reviewed, jail/account/alias comparison..."></textarea></label>
+            </div>
+          </div>
+        </article>
+
+        <article class="step" data-step-id="mail-flow" data-status="doing">
+          <div class="step-top">
+            <h3><span class="step-number">10</span>Exercise end-to-end mail paths</h3>
+            <select class="status" aria-label="Status for mail-flow tests">
+              <option value="todo">To do</option><option value="doing">In progress</option><option value="done">Done</option><option value="blocked">Blocked</option>
+            </select>
+          </div>
+          <div class="step-body">
+            <ul class="acceptance">
+              <li>Inbound mail from an external provider arrives over SMTP and appears in IMAP.</li>
+              <li>Authenticated submission over 465 or 587 delivers to an external provider.</li>
+              <li>Reply through a managed service alias works; test an external-forward alias if one exists.</li>
+              <li>TLS succeeds on 25, 465, 587, 143 and 993 with the expected certificate.</li>
+              <li>A known spam test follows the expected SpamAssassin/Junk path.</li>
+              <li>Quota reporting and rejection behavior remain correct.</li>
+              <li>MTA-STS-enabled outbound delivery shows no new TLS-policy errors.</li>
+            </ul>
+            <details><summary>Useful checks</summary>
+              <div class="command">sudo docker exec mailserver postqueue -p
+sudo docker logs --since 20m mailserver
+openssl s_client -connect diablo.norrs.no:25 -starttls smtp -servername diablo.norrs.no
+openssl s_client -connect diablo.norrs.no:587 -starttls smtp -servername diablo.norrs.no
+openssl s_client -connect diablo.norrs.no:993 -servername diablo.norrs.no<button class="copy" type="button">Copy</button></div>
+            </details>
+            <div class="callout">Do not paste passwords into this tracker. Store only message IDs, timestamps, sender/recipient domains and observed outcomes.</div>
+            <div class="fields">
+              <label>Owner<input class="owner" type="text"></label>
+              <label>Completed<input class="date" type="date"></label>
+              <label class="notes">Evidence / notes<textarea class="notes-input" placeholder="Message IDs and results for inbound, outbound, alias, spam, quota and TLS tests..."></textarea></label>
+            </div>
+          </div>
+        </article>
+
+        <article class="step" data-step-id="observe" data-status="doing">
+          <div class="step-top">
+            <h3><span class="step-number">11</span>Observe for 24 hours</h3>
+            <select class="status" aria-label="Status for observation window">
+              <option value="todo">To do</option><option value="doing">In progress</option><option value="done">Done</option><option value="blocked">Blocked</option>
+            </select>
+          </div>
+          <div class="step-body">
+            <ul class="acceptance">
+              <li>Health remains stable with no restart loop.</li>
+              <li>Queue returns to normal and has no unexplained deferred mail.</li>
+              <li>No repeated Dovecot, quota, Amavis, ClamAV or Fail2Ban errors appear.</li>
+              <li>Normal login, delivery and junk-folder behavior is confirmed by at least one real user.</li>
+            </ul>
+            <details><summary>Observation checks</summary>
+              <div class="command">sudo docker inspect --format 'health={{if .State.Health}}{{.State.Health.Status}}{{end}} restarts={{.RestartCount}} started={{.State.StartedAt}}' mailserver
+sudo docker exec mailserver postqueue -p
+sudo docker logs --since 24h mailserver
+sudo docker exec mailserver fail2ban-client status<button class="copy" type="button">Copy</button></div>
+            </details>
+            <div class="fields">
+              <label>Owner<input class="owner" type="text"></label>
+              <label>Completed<input class="date" type="date"></label>
+              <label class="notes">Evidence / notes<textarea class="notes-input" placeholder="Restart count, queue trend, reviewed warnings, user confirmation..."></textarea></label>
+            </div>
+          </div>
+        </article>
+
+        <article class="step" data-step-id="close" data-status="todo">
+          <div class="step-top">
+            <h3><span class="step-number">12</span>Close the change</h3>
+            <select class="status" aria-label="Status for closing the change">
+              <option value="todo">To do</option><option value="doing">In progress</option><option value="done">Done</option><option value="blocked">Blocked</option>
+            </select>
+          </div>
+          <div class="step-body">
+            <ul class="acceptance">
+              <li>Record the final image ID and the upgrade commit.</li>
+              <li>Export this tracker state and keep it with the change record.</li>
+              <li>Retain the pre-upgrade archive according to backup policy.</li>
+              <li>Only after the observation window, decide whether to prune the 15.1 image.</li>
+            </ul>
+            <div class="fields">
+              <label>Owner<input class="owner" type="text"></label>
+              <label>Completed<input class="date" type="date"></label>
+              <label class="notes">Closure notes<textarea class="notes-input" placeholder="Final image/commit, backup retention date, follow-ups..."></textarea></label>
+            </div>
+          </div>
+        </article>
+      </div>
+    </section>
+
+    <section class="section" aria-labelledby="gates-title">
+      <div class="section-head"><h2 id="gates-title">Decision gates</h2></div>
+      <div class="gate">
+        <article class="gate-card go">
+          <h3>Continue / accept</h3>
+          <ul>
+            <li>Container becomes healthy within 5 minutes.</li>
+            <li>No fatal startup or config errors.</li>
+            <li>Inbound, authenticated outbound, IMAP and alias tests pass.</li>
+            <li>Queue drains and Fail2Ban jails load.</li>
+          </ul>
+        </article>
+        <article class="gate-card stop">
+          <h3>Stop / roll back</h3>
+          <ul>
+            <li>Health stays unhealthy after 5 minutes.</li>
+            <li>Dovecot/Postfix configuration fails or service loops.</li>
+            <li>Authentication, mail delivery, quota, or TLS fails.</li>
+            <li>Queue grows with unexplained deferrals.</li>
+          </ul>
+        </article>
+      </div>
+    </section>
+
+    <section class="section" aria-labelledby="rollback-title">
+      <div class="section-head"><h2 id="rollback-title">Rollback runbook</h2><span class="tag high">keep immediately available</span></div>
+      <ol>
+        <li>Stop testing and preserve logs plus message IDs.</li>
+        <li>Revert the isolated mailserver upgrade commit so the tag is <code>15.1</code> and the old healthcheck/env configuration is restored.</li>
+        <li>Run <code>scripts/play-host.bash diablo mailserver --ask-become-pass</code> to recreate the 15.1 container.</li>
+        <li>Repeat startup, account, alias, TLS and mail-flow checks.</li>
+        <li><strong>Do not restore mail data by default.</strong> A full pre-upgrade restore would discard messages accepted after the backup. Restore persistent data only if the old image cannot operate on it, after preserving the post-upgrade tree for reconciliation.</li>
+      </ol>
+      <details><summary>Emergency image rollback if the Git revert is not yet available</summary>
+        <div class="command">cd /opt/dms
+sudo sed -i 's#docker-mailserver:16\.0\.1#docker-mailserver:15.1#' compose.yaml
+sudo systemctl restart mailserver
+sudo docker compose ps
+sudo docker logs --since 10m mailserver<button class="copy" type="button">Copy</button></div>
+      </details>
+      <div class="callout danger">The emergency edit is temporary drift from Ansible. Follow it by reverting the repository change and reapplying the mailserver playbook.</div>
+    </section>
+
+    <section class="section" aria-labelledby="decision-title">
+      <div class="section-head"><h2 id="decision-title">Change record</h2></div>
+      <div class="decision-grid">
+        <label for="decision">Final decision</label>
+        <select id="decision"><option value="pending">Pending</option><option value="go">Go</option><option value="no-go">No-go</option><option value="rolled-back">Rolled back</option><option value="accepted">Accepted / closed</option></select>
+        <label for="change-owner">Change owner</label><input id="change-owner" type="text">
+        <label for="window-start">Window start</label><input id="window-start" type="text" placeholder="YYYY-MM-DD HH:MM TZ">
+        <label for="window-end">Window end</label><input id="window-end" type="text" placeholder="YYYY-MM-DD HH:MM TZ">
+        <label for="change-notes">Summary</label><textarea id="change-notes" placeholder="Decision rationale, incident/follow-up links, final outcome..."></textarea>
+      </div>
+    </section>
+
+    <section class="section" aria-labelledby="sources-title">
+      <div class="section-head"><h2 id="sources-title">Official references</h2></div>
+      <ul>
+        <li><a href="https://github.com/docker-mailserver/docker-mailserver/blob/v16.0.1/CHANGELOG.md">docker-mailserver v16.0.1 changelog</a></li>
+        <li><a href="https://github.com/docker-mailserver/docker-mailserver/releases/tag/v16.0.0">v16.0.0 release notes</a></li>
+        <li><a href="https://github.com/docker-mailserver/docker-mailserver/releases/tag/v16.0.1">v16.0.1 release notes</a></li>
+        <li><a href="https://docker-mailserver.github.io/docker-mailserver/v16.0/faq/#how-do-i-update-dms">Official update procedure</a></li>
+        <li><a href="https://docker-mailserver.github.io/docker-mailserver/v16.0/config/security/ssl/#using-custom-dh-parameters">v16 TLS and custom DH parameters</a></li>
+        <li><a href="https://docker-mailserver.github.io/docker-mailserver/v16.0/config/environment/">v16 environment variables</a></li>
+        <li><a href="https://docker-mailserver.github.io/docker-mailserver/v16.0/config/debugging/">Startup and debugging guidance</a></li>
+      </ul>
+    </section>
+
+    <footer>
+      Tracker key: <code>dms-upgrade-15.1-to-16.0.1-v1</code>. Browser storage is convenient state, not a backup; export JSON at every major gate.
+    </footer>
+  </main>
+
+  <script id="embedded-state" type="application/json">
+    {
+      "schema": 1,
+      "tracker": "dms-upgrade-15.1-to-16.0.1-v1",
+      "updatedAt": "2026-09-04T21:10:00Z",
+      "steps": {
+        "window": {
+          "status": "done",
+          "owner": "Codex / operator",
+          "date": "2026-09-04",
+          "notes": "User approved an immediate short maintenance window. The mailserver change was kept isolated from unrelated repository changes."
+        },
+        "baseline": {
+          "status": "done",
+          "owner": "Codex",
+          "date": "2026-09-04",
+          "notes": "v15.1.0 healthy with zero restarts; mail queue empty; 5 accounts; 7 aliases; dovecot, postfix and custom Fail2Ban jails loaded; old image ID sha256:4f5093c251b61d5691f5ccfd3f90fcbf505585bfd045546430d282e5417658c8. One SSL_accept lost-connection log entry was a benign remote-client disconnect."
+        },
+        "backup": {
+          "status": "done",
+          "owner": "Codex",
+          "date": "2026-09-04",
+          "notes": "Offline backup: /opt/dms-upgrade-backups/2026-09-04-205328-pre-16.0.1/docker-data-dms.tar.gz. SHA-256 f27512147318da9a5affdb6480f675497ecf6f2e655766e5362537a495083422; checksum reverified OK. Tar omitted only Postfix runtime Unix sockets, which are recreated on startup."
+        },
+        "prepare-change": {
+          "status": "done",
+          "owner": "Codex",
+          "date": "2026-09-04",
+          "notes": "Image pinned to 16.0.1; custom healthcheck removed; obsolete DMS_DEBUG and ONE_DIR removed; stale spam-subject comment corrected. Compose, Ansible syntax and diff checks pass. Change prepared on an isolated PR branch."
+        },
+        "preflight": {
+          "status": "done",
+          "owner": "Codex",
+          "date": "2026-09-04",
+          "notes": "GO: 16.0.1 pre-pulled (registry digest sha256:d0fe7668defe157aad57ea31b1707ad1e2fb57d7a91bdf17cbdf876549946c86); queue empty; backup set 334 MiB. Resource checks passed and baseline ClamAV operation was healthy."
+        },
+        "deploy": {
+          "status": "done",
+          "owner": "Codex",
+          "date": "2026-09-04",
+          "notes": "Cutover started at 2026-09-04 20:53 UTC. The normal wrapper could not initialize its 1Password CLI session, so the two validated files were staged with Ansible and installed by a guarded stop/backup/install/start transaction. The failure trap was not invoked."
+        },
+        "startup": {
+          "status": "done",
+          "owner": "Codex",
+          "date": "2026-09-04",
+          "notes": "Welcome to docker-mailserver v16.0.1. Healthy with zero restarts; dms-healthcheck inherited from image; Postfix and Dovecot configuration valid; all 3 Fail2Ban jails loaded; account and alias counts unchanged; queue empty; zero fatal, error or warning lines after startup. Custom IPv4/IPv6 SMTP bind addresses and Amavis loopback overrides are present. Amavis, ClamAV, Dovecot, Fail2Ban, Postfix, Postgrey and MTA-STS are running."
+        },
+        "mail-flow": {
+          "status": "doing",
+          "owner": "Operator",
+          "date": "",
+          "notes": "TLS certificate verification passed with TLS 1.3 on ports 25, 143, 465, 587 and 993. Dovecot userdb and quota lookup passed. Non-delivering account/alias RCPT probes reached Postgrey and received the expected initial 450 greylist response. Real authenticated outbound, inbound delivery/IMAP, alias forwarding, spam placement, quota enforcement and MTA-STS behavior still require mailbox traffic confirmation."
+        },
+        "observe": {
+          "status": "doing",
+          "owner": "Operator",
+          "date": "",
+          "notes": "Observation began 2026-09-04 20:54 UTC. Initial state: healthy, zero restarts, empty queue, no startup warnings/errors."
+        },
+        "close": {
+          "status": "todo",
+          "owner": "",
+          "date": "",
+          "notes": ""
+        }
+      },
+      "fields": {
+        "decision": "go",
+        "change-owner": "Codex / operator",
+        "window-start": "2026-09-04 22:53 CEST",
+        "window-end": "2026-09-04 22:55 CEST",
+        "change-notes": "docker-mailserver upgraded from v15.1.0 to v16.0.1. Infrastructure validation passed. Mail-flow confirmation and 24-hour observation remain open."
+      }
+    }
+  </script>
+  <script>
+    (() => {
+      const storageKey = 'dms-upgrade-15.1-to-16.0.1-v1';
+      const steps = [...document.querySelectorAll('.step')];
+      const stateFields = ['decision', 'change-owner', 'window-start', 'window-end', 'change-notes'];
+      let storageAvailable = true;
+
+      function readEmbeddedState() {
+        try { return JSON.parse(document.getElementById('embedded-state').textContent || '{}'); }
+        catch (_) { return {}; }
+      }
+
+      function readSavedState() {
+        try { return JSON.parse(localStorage.getItem(storageKey) || 'null'); }
+        catch (_) { storageAvailable = false; return null; }
+      }
+
+      function collectState() {
+        const state = {
+          schema: 1,
+          tracker: storageKey,
+          updatedAt: new Date().toISOString(),
+          steps: {},
+          fields: {}
+        };
+        steps.forEach(step => {
+          state.steps[step.dataset.stepId] = {
+            status: step.querySelector('.status').value,
+            owner: step.querySelector('.owner').value,
+            date: step.querySelector('.date').value,
+            notes: step.querySelector('.notes-input').value
+          };
+        });
+        stateFields.forEach(id => { state.fields[id] = document.getElementById(id).value; });
+        return state;
+      }
+
+      function applyState(state) {
+        if (!state || state.tracker && state.tracker !== storageKey) return;
+        Object.entries(state.steps || {}).forEach(([id, value]) => {
+          const step = document.querySelector(`[data-step-id="${CSS.escape(id)}"]`);
+          if (!step) return;
+          if (value.status) step.querySelector('.status').value = value.status;
+          if (typeof value.owner === 'string') step.querySelector('.owner').value = value.owner;
+          if (typeof value.date === 'string') step.querySelector('.date').value = value.date;
+          if (typeof value.notes === 'string') step.querySelector('.notes-input').value = value.notes;
+        });
+        Object.entries(state.fields || {}).forEach(([id, value]) => {
+          const field = document.getElementById(id);
+          if (field && typeof value === 'string') field.value = value;
+        });
+        updateUI(state.updatedAt);
+      }
+
+      function updateUI(savedAt) {
+        const counts = { todo: 0, doing: 0, done: 0, blocked: 0 };
+        steps.forEach(step => {
+          const status = step.querySelector('.status').value;
+          step.dataset.status = status;
+          counts[status] += 1;
+        });
+        document.getElementById('completed-count').textContent = `${counts.done} / ${steps.length}`;
+        document.getElementById('doing-count').textContent = counts.doing;
+        document.getElementById('blocked-count').textContent = counts.blocked;
+        document.getElementById('progress-fill').style.width = `${(counts.done / steps.length) * 100}%`;
+        const gate = document.getElementById('overall-gate');
+        gate.textContent = counts.blocked ? 'Blocked' : counts.done === steps.length ? 'Complete' : counts.done >= 7 ? 'Execution' : 'Not ready';
+        gate.style.color = counts.blocked ? 'var(--red)' : counts.done === steps.length ? 'var(--green)' : 'inherit';
+        if (savedAt) {
+          document.getElementById('save-state').textContent = `${storageAvailable ? 'Saved' : 'In-memory only'} ${new Date(savedAt).toLocaleString()}`;
+        }
+      }
+
+      function save() {
+        const state = collectState();
+        try { localStorage.setItem(storageKey, JSON.stringify(state)); }
+        catch (_) { storageAvailable = false; }
+        updateUI(state.updatedAt);
+      }
+
+      document.addEventListener('input', event => {
+        if (event.target.matches('select, input, textarea')) save();
+      });
+      document.addEventListener('change', event => {
+        if (event.target.matches('select, input, textarea')) save();
+      });
+
+      document.querySelectorAll('.copy').forEach(button => {
+        button.addEventListener('click', async () => {
+          const command = button.parentElement.cloneNode(true);
+          command.querySelector('.copy').remove();
+          try {
+            await navigator.clipboard.writeText(command.textContent.trim());
+            button.textContent = 'Copied';
+            setTimeout(() => { button.textContent = 'Copy'; }, 1200);
+          } catch (_) {
+            button.textContent = 'Select';
+          }
+        });
+      });
+
+      document.getElementById('export-state').addEventListener('click', () => {
+        const state = collectState();
+        const blob = new Blob([JSON.stringify(state, null, 2)], { type: 'application/json' });
+        const link = document.createElement('a');
+        link.href = URL.createObjectURL(blob);
+        link.download = `dms-upgrade-16.0.1-state-${new Date().toISOString().slice(0, 10)}.json`;
+        link.click();
+        URL.revokeObjectURL(link.href);
+      });
+
+      document.getElementById('import-state').addEventListener('change', event => {
+        const file = event.target.files[0];
+        if (!file) return;
+        const reader = new FileReader();
+        reader.onload = () => {
+          try {
+            const state = JSON.parse(reader.result);
+            if (state.tracker !== storageKey) throw new Error('wrong tracker');
+            applyState(state);
+            save();
+          } catch (_) {
+            alert('This file is not valid state for this tracker.');
+          }
+          event.target.value = '';
+        };
+        reader.readAsText(file);
+      });
+
+      document.getElementById('reset-state').addEventListener('click', () => {
+        if (!confirm('Reset all locally saved progress and reload the baseline plan?')) return;
+        try { localStorage.removeItem(storageKey); } catch (_) {}
+        location.reload();
+      });
+
+      document.getElementById('print-plan').addEventListener('click', () => window.print());
+
+      steps.forEach(step => {
+        step.querySelector('.status').value = step.dataset.status;
+      });
+      const saved = readSavedState();
+      const embedded = readEmbeddedState();
+      const savedAt = Date.parse(saved?.updatedAt || 0);
+      const embeddedAt = Date.parse(embedded?.updatedAt || 0);
+      applyState(embeddedAt > savedAt ? embedded : (saved || embedded));
+      if (!saved && Object.keys(embedded).length === 0) save();
+    })();
+  </script>
+</body>
+</html>
