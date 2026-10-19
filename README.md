@@ -12,11 +12,14 @@ don't want to announce to the Internet(tm).
 
 The `private/` submodule holds shared host configuration and operational runbooks.
 The `friends/` submodule ([ansible-friends](https://github.com/norrs/ansible-friends))
-holds the media-stack and media-pruner playbooks and their media-only
-helpers, along with their media deployment variables. Both require repository
-access; neither is necessary to read or reuse
-the other public playbooks. Credentials are still obtained through the secret
-provider, not stored in either submodule.
+contains my **invite-only playbooks**, shared privately with friends. Access
+requires a personal invitation; cloning this public repository does not grant
+access to that collection. It holds the media-stack and media-pruner playbooks,
+their media-only helpers, and their media deployment variables.
+
+Both companions require repository access; neither is necessary to read or
+reuse the other public playbooks. Credentials are still obtained through the
+secret provider, not stored in either submodule.
 
 From an authorized checkout, initialize the companions you need:
 
