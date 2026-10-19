@@ -1,0 +1,95 @@
+---
+# Update only non-secret per-host access rules in the existing TinyAuth env.
+- name: Converge TinyAuth application rules without reading or replacing secrets
+  hosts: "{{ tinyauth_hosts | default('dalaran') }}"
+  gather_facts: false
+  become: true
+  vars:
+    tinyauth_service_dir: /service/tinyauth
+  tasks:
+    - name: Select only domain-based application rules
+      ansible.builtin.set_fact:
+        tinyauth_domain_apps: "{{ tinyauth_apps | selectattr('domain', 'defined') | list }}"
+
+    - name: Require explicit safe application definitions
+      ansible.builtin.assert:
+        that:
+          - item.id is match('^[a-z][a-z0-9]*$')
+          - item.domain is match('^[a-z0-9.-]+$')
+          - item.oauth_groups is match('^[A-Za-z0-9_-]+(,[A-Za-z0-9_-]+)*$')
+      loop: "{{ tinyauth_domain_apps }}"
+      loop_control:
+        label: "{{ item.id }}"
+
+    - name: Preserve exact application domains in existing environment
+      ansible.builtin.lineinfile:
+        path: "{{ tinyauth_service_dir }}/.env"
+        regexp: '^TINYAUTH_APPS_{{ item.id | upper }}_CONFIG_DOMAIN='
+        line: "TINYAUTH_APPS_{{ item.id | upper }}_CONFIG_DOMAIN={{ item.domain }}"
+        backup: true
+      loop: "{{ tinyauth_domain_apps }}"
+      register: tinyauth_apps_domains
+      no_log: true
+
+    - name: Preserve exact OAuth group rules in existing environment
+      ansible.builtin.lineinfile:
+        path: "{{ tinyauth_service_dir }}/.env"
+        regexp: '^TINYAUTH_APPS_{{ item.id | upper }}_OAUTH_GROUPS='
+        line: "TINYAUTH_APPS_{{ item.id | upper }}_OAUTH_GROUPS={{ item.oauth_groups }}"
+        backup: true
+      loop: "{{ tinyauth_domain_apps }}"
+      register: tinyauth_apps_groups
+      no_log: true
+
+    - name: Validate existing Compose configuration privately
+      ansible.builtin.command:
+        argv: [docker, compose, --file, "{{ tinyauth_service_dir }}/compose.yaml", config, --quiet]
+      args:
+        chdir: "{{ tinyauth_service_dir }}"
+      changed_when: false
+      no_log: true
+
+    - name: Restart only TinyAuth when application rules changed
+      ansible.builtin.systemd:
+        name: tinyauth
+        state: restarted
+      when: tinyauth_apps_domains.changed or tinyauth_apps_groups.changed
+
+    - name: Wait for TinyAuth container to run
+      ansible.builtin.command:
+        argv: [docker, inspect, --format, "{{ '{{.State.Running}}' }}", tinyauth]
+      register: tinyauth_apps_running
+      changed_when: false
+      retries: 30
+      delay: 2
+      until: tinyauth_apps_running.stdout == 'true'
+      when: not ansible_check_mode
+
+    - name: Wait for trusted TinyAuth HTTPS readiness
+      ansible.builtin.uri:
+        url: "https://{{ tinyauth_hostname }}/"
+        method: GET
+        status_code: 200
+        validate_certs: true
+        return_content: false
+      register: tinyauth_apps_https
+      retries: 30
+      delay: 2
+      until: tinyauth_apps_https.status == 200
+      when: not ansible_check_mode
+
+    - name: Read effective TinyAuth environment privately
+      ansible.builtin.command: docker inspect tinyauth
+      register: tinyauth_apps_inspect
+      changed_when: false
+      no_log: true
+      when: not ansible_check_mode
+
+    - name: Require every exact domain and group rule
+      ansible.builtin.assert:
+        that:
+          - "('TINYAUTH_APPS_' ~ (item.id | upper) ~ '_CONFIG_DOMAIN=' ~ item.domain) in (tinyauth_apps_inspect.stdout | from_json)[0].Config.Env"
+          - "('TINYAUTH_APPS_' ~ (item.id | upper) ~ '_OAUTH_GROUPS=' ~ item.oauth_groups) in (tinyauth_apps_inspect.stdout | from_json)[0].Config.Env"
+      loop: "{{ tinyauth_domain_apps }}"
+      no_log: true
+      when: not ansible_check_mode

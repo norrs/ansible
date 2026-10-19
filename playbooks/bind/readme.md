@@ -12,9 +12,23 @@ Don't need additional salt iterations on
 Always make sure to update serial in the zonefile. Format `<yyyy><mm><dd><nn>` where `nn` is change
 number for that particular day.
 
-`norrs.no` uses inline signing and can receive dynamic DNS updates for ACME
-challenges. The playbook freezes the zone before replacing the static zone file
-and thaws it afterward, so BIND can sync/clean journal state before reloading.
+`norrs.no` uses inline signing and receives dynamic DNS updates for ACME
+challenges. A normal playbook run therefore does not replace an existing live
+master: doing so could roll back its SOA serial or journaled updates. A missing
+master is bootstrapped automatically.
+
+To intentionally replace an existing master, first reconcile the checked-in
+file with the live unsigned zone, choose a serial higher than `rndc zonestatus
+norrs.no`, and run the play with:
+
+```bash
+ansible-playbook -i inventory.yaml playbooks/bind/playbook.yaml \
+  --limit cloud -e bind_norrs_replace_zone_file=true
+```
+
+The explicit replacement path freezes the zone, validates and copies the
+checked-in master, and thaws it. Thaw loads the dynamic zone; it must not be
+followed by `rndc reload norrs.no`.
 
 ## Dalaran ACME DNS-01
 

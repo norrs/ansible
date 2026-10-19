@@ -24,6 +24,13 @@
         rtorrent_rutorrent_pgid: "{{ rtorrent_rutorrent_pgid | default(1000) }}"
         rtorrent_rutorrent_ports: "{{ rtorrent_rutorrent_ports | default({'dht': 6881, 'xmlrpc': 8000, 'rutorrent': 8080, 'webdav': 9000, 'incoming': 50000}) }}"
         rtorrent_rutorrent_volumes: "{{ rtorrent_rutorrent_volumes | default([]) }}"
+        rtorrent_rutorrent_storage_pools: "{{ rtorrent_rutorrent_storage_pools | default([]) }}"
+        rtorrent_rutorrent_delete_guard_enabled: "{{ rtorrent_rutorrent_delete_guard_enabled | default(false) }}"
+        rtorrent_rutorrent_legacy_delete_roots: "{{ rtorrent_rutorrent_legacy_delete_roots | default([]) }}"
+        rtorrent_rutorrent_media_pruner_backups: "{{ rtorrent_rutorrent_media_pruner_backups | default('') }}"
+        rtorrent_rutorrent_config_path: "{{ rtorrent_rutorrent_config_path | default('') }}"
+        rtorrent_rutorrent_media_network_enabled: "{{ rtorrent_rutorrent_media_network_enabled | default(false) }}"
+        rtorrent_rutorrent_media_network_name: "{{ rtorrent_rutorrent_media_network_name | default('media_internal') }}"
         rtorrent_rutorrent_geoip_volume: "{{ rtorrent_rutorrent_geoip_volume | default('./data/geoip:/data') }}"
         rtorrent_rutorrent_log_volume: "{{ rtorrent_rutorrent_log_volume | default('./data/rtorrent/log:/log') }}"
         rtorrent_rutorrent_geoip_enabled: "{{ rtorrent_rutorrent_geoip_enabled | default(true) }}"
@@ -64,11 +71,153 @@
       no_log: true
       when: rtorrent_rutorrent_geoip_enabled | bool
 
+    - name: Inspect existing GeoIP environment as a deployment fallback
+      become: true
+      ansible.builtin.stat:
+        path: "{{ rtorrent_rutorrent_service_dir }}/geoip-updater.env"
+      register: rtorrent_rutorrent_existing_geoip_env_stat
+      when:
+        - rtorrent_rutorrent_geoip_enabled | bool
+        - rtorrent_rutorrent_geoip_license_key | length == 0
+
+    - name: Read existing GeoIP environment as a deployment fallback
+      become: true
+      ansible.builtin.slurp:
+        src: "{{ rtorrent_rutorrent_service_dir }}/geoip-updater.env"
+      register: rtorrent_rutorrent_existing_geoip_env
+      no_log: true
+      when:
+        - rtorrent_rutorrent_geoip_enabled | bool
+        - rtorrent_rutorrent_geoip_license_key | length == 0
+        - rtorrent_rutorrent_existing_geoip_env_stat.stat.exists
+
+    - name: Reuse the existing GeoIP license key when 1Password is unavailable
+      ansible.builtin.set_fact:
+        rtorrent_rutorrent_geoip_license_key: >-
+          {{
+            (
+              (rtorrent_rutorrent_existing_geoip_env.content | b64decode)
+              | regex_findall('(?m)^LICENSE_KEY=(.+)$')
+              | first
+              | default('')
+            ) | trim
+          }}
+      no_log: true
+      when:
+        - rtorrent_rutorrent_existing_geoip_env is defined
+        - rtorrent_rutorrent_existing_geoip_env.content is defined
+
     - name: Validate GeoIP configuration
       ansible.builtin.assert:
         that:
           - not (rtorrent_rutorrent_geoip_enabled | bool) or rtorrent_rutorrent_geoip_license_key | length > 0
         fail_msg: "Missing GeoIP license key in 1Password item '{{ rtorrent_rutorrent_geoip_op_item }}' / vault '{{ rtorrent_rutorrent_geoip_op_vault }}', field '{{ rtorrent_rutorrent_geoip_license_key_field }}'."
+
+    - name: Validate rTorrent storage pool definitions
+      ansible.builtin.assert:
+        that:
+          - item.name | default('') | length > 0
+          - item.host_path | default('') is match('^/')
+          - item.container_path | default('') is match('^/pool/')
+          - item.directories | default([]) | length > 0
+          - item.directories | reject('match', '^[.]torrents(?:/[^/]+)?$') | list | length == 0
+        fail_msg: "Each rTorrent storage pool needs a name, absolute host path, /pool/... container path, and only .torrents seed directories."
+      loop: "{{ rtorrent_rutorrent_storage_pools }}"
+      loop_control:
+        label: "{{ item.name | default(item.host_path | default('invalid pool')) }}"
+
+    - name: Inspect rTorrent storage pool roots
+      become: true
+      ansible.builtin.stat:
+        path: "{{ item.host_path }}"
+      register: rtorrent_rutorrent_storage_pool_stats
+      loop: "{{ rtorrent_rutorrent_storage_pools }}"
+      loop_control:
+        label: "{{ item.host_path }}"
+
+    - name: Validate rTorrent storage pool roots exist as directories
+      ansible.builtin.assert:
+        that:
+          - item.stat.exists
+          - item.stat.isdir
+        fail_msg: "rTorrent storage pool root '{{ item.item.host_path }}' must already exist before seed directories are created."
+      loop: "{{ rtorrent_rutorrent_storage_pool_stats.results }}"
+      loop_control:
+        label: "{{ item.item.host_path }}"
+
+    - name: Inspect backing mounts for rTorrent storage pools
+      become: true
+      ansible.builtin.command:
+        argv:
+          - findmnt
+          - --noheadings
+          - --output
+          - TARGET,SOURCE,FSTYPE
+          - --target
+          - "{{ item.host_path }}"
+      check_mode: false
+      changed_when: false
+      failed_when: false
+      register: rtorrent_rutorrent_storage_pool_mounts
+      loop: "{{ rtorrent_rutorrent_storage_pools }}"
+      loop_control:
+        label: "{{ item.host_path }}"
+
+    - name: Validate rTorrent storage pools are on mounted ext4 filesystems
+      ansible.builtin.assert:
+        that:
+          - item.rc == 0
+          - item.stdout.split() | length >= 3
+          - item.stdout.split()[-1] == 'ext4'
+        fail_msg: "rTorrent storage pool '{{ item.item.host_path }}' must resolve to a mounted ext4 filesystem; got '{{ item.stdout | default('') }}'."
+      loop: "{{ rtorrent_rutorrent_storage_pool_mounts.results }}"
+      loop_control:
+        label: "{{ item.item.host_path }}"
+
+    - name: Create rTorrent Arr seed directories
+      become: true
+      ansible.builtin.file:
+        path: "{{ item.0.host_path }}/{{ item.1 }}"
+        state: directory
+        owner: "{{ rtorrent_rutorrent_puid }}"
+        group: "{{ rtorrent_rutorrent_pgid }}"
+        mode: '2775'
+      loop: "{{ query('ansible.builtin.subelements', rtorrent_rutorrent_storage_pools, 'directories', {'skip_missing': true}) }}"
+      loop_control:
+        label: "{{ item.0.host_path }}/{{ item.1 }}"
+
+    - name: Build rTorrent guarded seed roots
+      ansible.builtin.set_fact:
+        rtorrent_rutorrent_guarded_seed_roots: >-
+          {{
+            rtorrent_rutorrent_guarded_seed_roots | default([])
+            + [item.0.container_path ~ '/' ~ item.1]
+          }}
+      loop: "{{ query('ansible.builtin.subelements', rtorrent_rutorrent_storage_pools, 'directories', {'skip_missing': true}) }}"
+      loop_control:
+        label: "{{ item.0.container_path }}/{{ item.1 }}"
+      when:
+        - rtorrent_rutorrent_delete_guard_enabled | bool
+        - item.1 != '.torrents'
+
+    - name: Add explicitly allowlisted classic category roots to the deletion guard
+      ansible.builtin.set_fact:
+        rtorrent_rutorrent_guarded_seed_roots: >-
+          {{
+            rtorrent_rutorrent_guarded_seed_roots | default([])
+            + rtorrent_rutorrent_legacy_delete_roots
+          }}
+      when: rtorrent_rutorrent_delete_guard_enabled | bool
+
+    - name: Validate rTorrent deletion guard configuration
+      ansible.builtin.assert:
+        that:
+          - rtorrent_rutorrent_config_path is match('^/')
+          - rtorrent_rutorrent_guarded_seed_roots | default([]) | length > 0
+          - rtorrent_rutorrent_legacy_delete_roots | reject('match', '^/downloads/complete/[^/]+$') | list | length == 0
+          - rtorrent_rutorrent_guarded_seed_roots | default([]) | reject('match', '^(?:/pool/[^/]+/[.]torrents/[^/]+|/downloads/complete/[^/]+)$') | list | length == 0
+        fail_msg: "The rTorrent deletion guard needs an absolute persisted config path and only category-specific Arr or classic roots."
+      when: rtorrent_rutorrent_delete_guard_enabled | bool
 
     - name: "{{ rtorrent_rutorrent_service_dir }}"
       become: true
@@ -89,6 +238,135 @@
         mode: '0755'
       loop:
         - passwd
+
+    - name: Create rTorrent guard directories
+      become: true
+      ansible.builtin.file:
+        path: "{{ rtorrent_rutorrent_service_dir }}/{{ item.path }}"
+        state: directory
+        owner: root
+        group: root
+        mode: "{{ item.mode }}"
+      loop:
+        - path: bin
+          mode: '0755'
+        - path: backups
+          mode: '0700'
+      when: rtorrent_rutorrent_delete_guard_enabled | bool
+
+    - name: Install guarded rTorrent data deletion helper
+      become: true
+      ansible.builtin.template:
+        src: files/rtorrent-rutorrent/rtorrent-delete-seed.j2
+        dest: "{{ rtorrent_rutorrent_service_dir }}/bin/rtorrent-delete-seed"
+        owner: root
+        group: root
+        mode: '0755'
+      register: rtorrent_rutorrent_delete_guard_script
+      when: rtorrent_rutorrent_delete_guard_enabled | bool
+
+    - name: Read persisted rTorrent configuration before managing hooks
+      become: true
+      ansible.builtin.slurp:
+        src: "{{ rtorrent_rutorrent_config_path }}"
+      register: rtorrent_rutorrent_config
+      when: rtorrent_rutorrent_delete_guard_enabled | bool
+
+    - name: Validate persisted rTorrent hook configuration
+      ansible.builtin.assert:
+        that:
+          - >-
+            (
+              rtorrent_rutorrent_config.content | b64decode
+              | regex_findall('(?m)^(?:method[.]set_key = event[.]download[.]finished,move_complete,.*|# Ansible managed: legacy completion mover disabled; Arr imports from category-specific seed directories[.])$')
+              | length
+            ) == 1
+          - >-
+            (
+              rtorrent_rutorrent_config.content | b64decode
+              | regex_findall('(?m)^method[.]set_key = event[.]download[.]erased,delete_erased,.*$')
+              | length
+            ) == 1
+        fail_msg: "Refusing to edit '{{ rtorrent_rutorrent_config_path }}': expected exactly one completion hook and one erase hook."
+      when: rtorrent_rutorrent_delete_guard_enabled | bool
+
+    - name: Back up persisted rTorrent configuration before hook migration
+      become: true
+      ansible.builtin.copy:
+        src: "{{ rtorrent_rutorrent_config_path }}"
+        dest: "{{ rtorrent_rutorrent_service_dir }}/backups/rtorrent.rc.before-arr-guard"
+        remote_src: true
+        force: false
+        owner: root
+        group: root
+        mode: '0600'
+      when:
+        - rtorrent_rutorrent_delete_guard_enabled | bool
+        - not ansible_check_mode
+
+    - name: Disable legacy rTorrent completion mover
+      become: true
+      ansible.builtin.lineinfile:
+        path: "{{ rtorrent_rutorrent_config_path }}"
+        regexp: '^(?:method[.]set_key = event[.]download[.]finished,move_complete,.*|# Ansible managed: legacy completion mover disabled; Arr imports from category-specific seed directories[.])$'
+        line: '# Ansible managed: legacy completion mover disabled; Arr imports from category-specific seed directories.'
+        owner: "{{ rtorrent_rutorrent_puid }}"
+        group: "{{ rtorrent_rutorrent_pgid }}"
+        mode: '0644'
+      register: rtorrent_rutorrent_completion_hook
+      when: rtorrent_rutorrent_delete_guard_enabled | bool
+
+    - name: Guard rTorrent erase-data hook
+      become: true
+      ansible.builtin.lineinfile:
+        path: "{{ rtorrent_rutorrent_config_path }}"
+        regexp: '^method[.]set_key = event[.]download[.]erased,delete_erased,.*$'
+        line: 'method.set_key = event.download.erased,delete_erased,"execute=/usr/local/sbin/rtorrent-delete-seed,$d.data_path="'
+        owner: "{{ rtorrent_rutorrent_puid }}"
+        group: "{{ rtorrent_rutorrent_pgid }}"
+        mode: '0644'
+      register: rtorrent_rutorrent_erase_hook
+      when: rtorrent_rutorrent_delete_guard_enabled | bool
+
+    - name: Inspect rTorrent media network
+      become: true
+      ansible.builtin.command:
+        argv:
+          - docker
+          - network
+          - inspect
+          - "{{ rtorrent_rutorrent_media_network_name }}"
+      check_mode: false
+      changed_when: false
+      failed_when: false
+      register: rtorrent_rutorrent_media_network
+      when: rtorrent_rutorrent_media_network_enabled | bool
+
+    - name: Validate existing rTorrent media network
+      ansible.builtin.assert:
+        that:
+          - (rtorrent_rutorrent_media_network.stdout | from_json | first).Driver == 'bridge'
+          - (rtorrent_rutorrent_media_network.stdout | from_json | first).Internal | bool
+        fail_msg: "Existing Docker network '{{ rtorrent_rutorrent_media_network_name }}' must be an internal bridge."
+      when:
+        - rtorrent_rutorrent_media_network_enabled | bool
+        - rtorrent_rutorrent_media_network.rc == 0
+
+    - name: Create internal rTorrent media network
+      become: true
+      ansible.builtin.command:
+        argv:
+          - docker
+          - network
+          - create
+          - --driver
+          - bridge
+          - --internal
+          - "{{ rtorrent_rutorrent_media_network_name }}"
+      when:
+        - rtorrent_rutorrent_media_network_enabled | bool
+        - rtorrent_rutorrent_media_network.rc != 0
+        - not ansible_check_mode
 
     - name: Create empty rTorrent/ruTorrent htpasswd files
       become: true
@@ -222,6 +500,9 @@
           or rtorrent_rutorrent_app_env.changed
           or (rtorrent_rutorrent_geoip_env is defined and rtorrent_rutorrent_geoip_env.changed)
           or rtorrent_rutorrent_compose.changed
+          or (rtorrent_rutorrent_delete_guard_script is defined and rtorrent_rutorrent_delete_guard_script.changed)
+          or (rtorrent_rutorrent_completion_hook is defined and rtorrent_rutorrent_completion_hook.changed)
+          or (rtorrent_rutorrent_erase_hook is defined and rtorrent_rutorrent_erase_hook.changed)
         )
 
     - name: Test nginx-proxy config after ruTorrent vhost changes

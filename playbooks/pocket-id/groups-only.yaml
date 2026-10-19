@@ -1,0 +1,83 @@
+---
+# Create named groups without restarting Pocket ID or changing memberships.
+# Selection is configured as pocket_id_group_names in private/group_vars/dalaran.yaml.
+- name: Ensure selected Pocket ID groups exist
+  hosts: "{{ pocket_id_hosts | default('dalaran') }}"
+  gather_facts: false
+  # Required private input: pocket_id_api_op_vault.
+  vars:
+    pocket_id_api_op_item: pocket-id
+    pocket_id_api_key_field: API_KEY
+  tasks:
+    - name: Select only explicitly requested group definitions
+      ansible.builtin.set_fact:
+        pocket_id_selected_groups: >-
+          {{ pocket_id_user_groups | default([])
+             | selectattr('name', 'in', pocket_id_group_names | default([])) | list }}
+
+    - name: Require a nonempty and fully defined group selection
+      ansible.builtin.assert:
+        that:
+          - pocket_id_group_names | default([]) | length > 0
+          - pocket_id_selected_groups | length == pocket_id_group_names | unique | length
+        fail_msg: Every explicitly requested group needs a definition in pocket_id_user_groups.
+
+    - name: Read the existing admin API key without displaying it
+      ansible.builtin.set_fact:
+        pocket_id_api_key: >-
+          {{ lookup('community.general.onepassword', pocket_id_api_op_item,
+             field=pocket_id_api_key_field, vault=pocket_id_api_op_vault,
+             errors='ignore') | default('', true) }}
+      no_log: true
+
+    - name: Require the existing Pocket ID admin API key
+      ansible.builtin.assert:
+        that:
+          - pocket_id_api_key | length > 0
+        fail_msg: The Pocket ID API_KEY must be available in the existing 1Password item.
+
+    - name: Read each selected group
+      ansible.builtin.uri:
+        url: "https://{{ pocket_id_hostname }}/api/user-groups?search={{ item.name | urlencode }}"
+        headers:
+          X-API-Key: "{{ pocket_id_api_key }}"
+        status_code: 200
+      loop: "{{ pocket_id_selected_groups }}"
+      register: pocket_id_selected_group_queries
+      no_log: true
+
+    - name: Create only missing groups without assigning users
+      ansible.builtin.uri:
+        url: "https://{{ pocket_id_hostname }}/api/user-groups"
+        method: POST
+        headers:
+          X-API-Key: "{{ pocket_id_api_key }}"
+        body_format: json
+        body:
+          name: "{{ item.item.name }}"
+          friendlyName: "{{ item.item.friendly_name }}"
+        status_code: 201
+      when: item.json.data | selectattr('name', 'equalto', item.item.name) | list | length == 0
+      loop: "{{ pocket_id_selected_group_queries.results }}"
+      changed_when: true
+      no_log: true
+
+    - name: Verify each group exists exactly once
+      ansible.builtin.uri:
+        url: "https://{{ pocket_id_hostname }}/api/user-groups?search={{ item.name | urlencode }}"
+        headers:
+          X-API-Key: "{{ pocket_id_api_key }}"
+        status_code: 200
+      loop: "{{ pocket_id_selected_groups }}"
+      register: pocket_id_verify_group
+      failed_when: >-
+        pocket_id_verify_group.status != 200 or
+        (pocket_id_verify_group.json.data | selectattr('name', 'equalto', item.name) | list | length != 1)
+      no_log: true
+
+    - name: Report selected groups without exposing credentials or user details
+      ansible.builtin.debug:
+        msg: "Verified group '{{ item.name }}'; existing memberships were not modified."
+      loop: "{{ pocket_id_selected_groups }}"
+      loop_control:
+        label: "{{ item.name }}"

@@ -1,0 +1,18 @@
+#!/bin/sh
+set -eu
+
+# Docker run is the long-running ExecStart process. With Type=simple, systemd
+# can invoke ExecStartPost before Docker has registered the container name.
+attempt=0
+until /usr/bin/docker container inspect nginx-proxy >/dev/null 2>&1; do
+    attempt=$((attempt + 1))
+    if [ "$attempt" -ge 30 ]; then
+        echo "nginx-proxy did not appear within 30 seconds" >&2
+        exit 1
+    fi
+    /bin/sleep 1
+done
+
+{% for network in nginx_proxy_additional_internal_networks | default([]) %}
+/usr/bin/docker network connect {{ network }} nginx-proxy
+{% endfor %}

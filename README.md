@@ -8,6 +8,40 @@ where [my private](https://github.com/norrs/ansible-private) ansible configurati
 submodule. My private collection does not contain secrets, but sensitive enough that I simply
 don't want to announce to the Internet(tm).
 
+## Optional private companions
+
+The `private/` submodule holds shared host configuration and operational runbooks.
+The `friends/` submodule ([ansible-friends](https://github.com/norrs/ansible-friends))
+holds the media-stack and media-pruner playbooks and their media-only
+helpers, along with their media deployment variables. Both require repository
+access; neither is necessary to read or reuse
+the other public playbooks. Credentials are still obtained through the secret
+provider, not stored in either submodule.
+
+From an authorized checkout, initialize the companions you need:
+
+```bash
+git submodule update --init private
+git submodule update --init friends
+```
+
+Alternatively, authorized users can clone with `--recurse-submodules`. Public
+clones without access should omit recursive initialization. Media entry points
+under `playbooks/` are symlinks into `friends/`; initialize that module before
+running the media-enabled host playbook. Run through the parent entry points so
+relative imports of shared proxy/authentication roles continue to resolve.
+
+For this host, `group_vars/dalaran/` loads `00-private.yaml` from
+`private/group_vars/dalaran.yaml` and `10-media.yaml` from
+`friends/group_vars/dalaran.yaml` through symlinks. Keep shared settings in the
+first file and media-only settings in the second; avoid duplicate keys because
+later files replace earlier values rather than merging lists. Both companions
+are required for the complete host inventory. No extra-vars or command changes
+are needed to load the split configuration.
+
+Commit and push companion changes before updating their pinned revisions here.
+Updating submodules alone does not deploy services or migrate media files.
+
 ## Collections
 
 NB: Doesn't use onepassword.connect yet, but keeping it for now.

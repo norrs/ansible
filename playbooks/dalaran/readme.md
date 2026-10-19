@@ -130,7 +130,19 @@ nginx_proxy_nsupdate_zone: ...
 pocket_id_trust_proxy: ...
 ```
 
-The public `group_vars/dalaran.yaml` path is a symlink to that private file.
+The public `group_vars/dalaran/` directory loads two symlinked files:
+
+```text
+00-private.yaml -> ../../private/group_vars/dalaran.yaml
+10-media.yaml   -> ../../friends/group_vars/dalaran.yaml
+```
+
+The first file holds shared host settings; the second holds dedicated media
+and rTorrent storage/guard settings alongside their playbooks. Initialize
+both submodules for this host. Ansible loads these automatically in filename
+order; avoid duplicate keys across files, especially lists, because the later
+value replaces the earlier one. Existing inventory and playbook commands are
+unchanged.
 
 ## DNS-01
 

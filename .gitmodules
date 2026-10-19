@@ -1,3 +1,6 @@
 [submodule "private"]
 	path = private
 	url = git@github.com:norrs/ansible-private.git
+[submodule "friends"]
+	path = friends
+	url = git@github.com:norrs/ansible-friends.git

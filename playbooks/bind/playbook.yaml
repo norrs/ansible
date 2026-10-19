@@ -125,7 +125,20 @@
         validate: named-checkzone rockj.net %s
       register: bind_rockj_zone
 
+    - name: Inspect inline-signed norrs.no master file
+      become: true
+      ansible.builtin.stat:
+        path: /var/lib/bind/db.d/db.norrs.no
+      register: bind_norrs_zone_file
+
+    # norrs.no is dynamic because DNS-01 updates are journaled by BIND. Replacing
+    # its master on every run can roll back the SOA serial and journaled updates.
+    # Bootstrap a missing master automatically, but require an explicit opt-in
+    # after the checked-in file has been reconciled with the live zone.
     - name: Update inline-signed norrs.no zone file
+      when: >-
+        not bind_norrs_zone_file.stat.exists
+        or (bind_norrs_replace_zone_file | default(false) | bool)
       block:
         - name: Freeze norrs.no before updating zone file
           become: true
@@ -155,9 +168,14 @@
     - name: Reconfigure bind
       become: true
       ansible.builtin.command: rndc reconfig
-      when: bind_acl.changed or bind_hodge_castor_key.changed or bind_acme_dalaran_key.changed or bind_acme_dalaran_policy.changed or bind_named_local.changed
+      when: >-
+        (bind_acl is defined and bind_acl.changed)
+        or (bind_hodge_castor_key is defined and bind_hodge_castor_key.changed)
+        or (bind_acme_dalaran_key is defined and bind_acme_dalaran_key.changed)
+        or (bind_acme_dalaran_policy is defined and bind_acme_dalaran_policy.changed)
+        or (bind_named_local is defined and bind_named_local.changed)
 
-    - name: Reload zonefiles
+    - name: Reload static rockj.net zone file
       become: true
-      ansible.builtin.command: rndc reload
-      when: bind_rockj_zone.changed or (bind_norrs_zone is defined and bind_norrs_zone.changed)
+      ansible.builtin.command: rndc reload rockj.net
+      when: bind_rockj_zone is defined and bind_rockj_zone.changed

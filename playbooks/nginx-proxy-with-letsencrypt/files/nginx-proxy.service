@@ -5,7 +5,7 @@ After=docker.service
 
 [Service]
 ExecStartPre=/bin/sleep 1
-ExecStartPre=/usr/bin/docker pull nginxproxy/nginx-proxy:1.7
+ExecStartPre=/usr/bin/docker pull {{ nginx_proxy_pull_image | default('nginxproxy/nginx-proxy:1.7') }}
 ExecStart=/usr/bin/docker run \
   --name nginx-proxy \
   --restart=always \
@@ -21,7 +21,10 @@ ExecStart=/usr/bin/docker run \
 {% endif %}
   --volume html:/usr/share/nginx/html \
   --volume /var/run/docker.sock:/tmp/docker.sock:ro \
-  nginxproxy/nginx-proxy
+  {{ nginx_proxy_image | default('nginxproxy/nginx-proxy') }}
+{% if nginx_proxy_additional_internal_networks | default([]) | length > 0 %}
+ExecStartPost={{ nginx_proxy_service_dir | default('/service/nginx-proxy') }}/connect-internal-networks.sh
+{% endif %}
 ExecStop=/usr/bin/docker stop nginx-proxy
 ExecStopPost=/usr/bin/docker rm -f nginx-proxy
 ExecReload=/usr/bin/docker restart nginx-proxy
