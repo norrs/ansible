@@ -1,0 +1,65 @@
+---
+# Adds permissions only; never replaces a dynamic zone or provisions credentials.
+- name: Add configured application DNS-01 permissions
+  hosts: "{{ bind_hosts | default('cloud') }}"
+  gather_facts: false
+  become: true
+  tasks:
+    - name: Require private policy inputs
+      ansible.builtin.assert:
+        that:
+          - bind_acme_policy_path is defined
+          - bind_acme_policy_path is match('^/etc/bind/[^/]+$')
+          - bind_acme_tsig_key_name is defined
+          - bind_acme_tsig_key_name is match('^[a-z0-9][a-z0-9.-]+[.]$')
+          - bind_acme_challenge_hosts | default([]) | length > 0
+          - bind_acme_challenge_hosts | reject('match', '^[a-z0-9][a-z0-9.-]+$') | list | length == 0
+
+    - name: Read the existing policy for rollback
+      ansible.builtin.slurp:
+        src: "{{ bind_acme_policy_path }}"
+      register: acme_policy_before
+
+    - name: Require the expected single update-policy block
+      ansible.builtin.assert:
+        that:
+          - "'update-policy' in (acme_policy_before.content | b64decode)"
+          - (acme_policy_before.content | b64decode | regex_findall('(?m)^\\s*};\\s*$') | length) == 1
+
+    - name: Add and validate exact grants without touching other rules
+      block:
+        - name: Insert the exact media UI TXT grants
+          ansible.builtin.lineinfile:
+            path: "{{ bind_acme_policy_path }}"
+            regexp: '^\s*grant {{ bind_acme_tsig_key_name | regex_escape }} name _acme-challenge\.{{ item | regex_escape }}\. TXT;\s*$'
+            line: "    grant {{ bind_acme_tsig_key_name }} name _acme-challenge.{{ item }}. TXT;"
+            insertbefore: '^\s*};\s*$'
+            backup: true
+          loop: "{{ bind_acme_challenge_hosts }}"
+          register: acme_policy_edit
+
+        - name: Validate the complete BIND configuration
+          ansible.builtin.command: named-checkconf
+          changed_when: false
+          when: not ansible_check_mode
+
+        - name: Reload configuration only when permissions changed
+          ansible.builtin.command: rndc reconfig
+          changed_when: true
+          when:
+            - acme_policy_edit.changed
+            - not ansible_check_mode
+      rescue:
+        - name: Restore the original policy after validation or reload failure
+          ansible.builtin.copy:
+            content: "{{ acme_policy_before.content | b64decode }}"
+            dest: "{{ bind_acme_policy_path }}"
+            # Omit mode/owner/group to preserve existing file attributes.
+          when: not ansible_check_mode
+        - name: Reload the restored configuration
+          ansible.builtin.command: rndc reconfig
+          changed_when: true
+          when: not ansible_check_mode
+        - name: Report rollback
+          ansible.builtin.fail:
+            msg: Policy update failed; the original policy was restored. Inspect BIND before retrying.

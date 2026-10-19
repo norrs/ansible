@@ -2,6 +2,9 @@
 - name: nginx proxy with letsencrypt
   hosts: "{{ nginx_proxy_hosts | default('cloud') }}"
   tasks:
+    - name: Prepare additional internal proxy networks
+      ansible.builtin.import_tasks: tasks/internal-networks.yaml
+
     - name: Ensure webservers docker network exists
       become: true
       ansible.builtin.command: docker network inspect webservers
@@ -71,6 +74,17 @@
       when: ansible_facts['service_mgr'] == 'systemd'
       register: nginx_proxy_unit
 
+    - name: Install bounded internal-network attachment helper
+      become: true
+      ansible.builtin.template:
+        src: files/connect-internal-networks.sh.j2
+        dest: "{{ nginx_proxy_service_dir | default('/service/nginx-proxy') }}/connect-internal-networks.sh"
+        owner: root
+        group: root
+        mode: '0755'
+      register: nginx_proxy_network_helper
+      when: nginx_proxy_additional_internal_networks | default([]) | length > 0
+
     - name: "/etc/systemd/system/acme-companion.service"
       become: true
       ansible.builtin.template:
@@ -87,14 +101,22 @@
       become: true
       ansible.builtin.systemd:
         daemon_reload: true
-      when: nginx_proxy_unit.changed or acme_companion_unit.changed
+      when: nginx_proxy_unit.changed or acme_companion_unit.changed or nginx_proxy_network_helper.changed | default(false)
 
     - name: Restart nginx-proxy when unit changed
       become: true
       ansible.builtin.systemd:
         state: restarted
         name: nginx-proxy
-      when: nginx_proxy_unit.changed
+      when: nginx_proxy_unit.changed or nginx_proxy_network_helper.changed | default(false)
+
+    - name: Restore declared reverse dependencies after proxy recreation
+      become: true
+      ansible.builtin.systemd:
+        state: started
+        name: "{{ item }}"
+      loop: "{{ nginx_proxy_restart_dependents | default([]) }}"
+      when: nginx_proxy_unit.changed or nginx_proxy_network_helper.changed | default(false)
 
     - name: Restart acme-companion when config changed
       become: true

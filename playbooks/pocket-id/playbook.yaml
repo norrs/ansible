@@ -6,6 +6,9 @@
   vars:
     pocket_id_service_dir: /service/pocket-id
     pocket_id_smtp_secret_container_path: /run/secrets/pocket_id_smtp_password
+    pocket_id_api_op_item: pocket-id
+    pocket_id_api_key_field: API_KEY
+    # Required private input for group management: pocket_id_api_op_vault.
     # Required private key: pocket_id_hostname. See private/group_vars/dalaran.yaml.
   tasks:
     - name: Check Pocket ID SMTP service account mapping
@@ -123,3 +126,88 @@
         state: started
         enabled: true
         name: pocket-id
+
+    - name: Read Pocket ID API key for declarative groups
+      ansible.builtin.set_fact:
+        pocket_id_api_key: >-
+          {{
+            lookup(
+              'community.general.onepassword',
+              pocket_id_api_op_item,
+              field=pocket_id_api_key_field,
+              vault=pocket_id_api_op_vault,
+              errors='ignore'
+            ) | default('', true)
+          }}
+      when: pocket_id_user_groups | default([]) | length > 0
+      no_log: true
+
+    - name: Require Pocket ID API key for declarative groups
+      ansible.builtin.assert:
+        that:
+          - pocket_id_api_key | default('') | length > 0
+        fail_msg: >-
+          Pocket ID group convergence is enabled, but the 1Password item
+          '{{ pocket_id_api_op_item }}' has no '{{ pocket_id_api_key_field }}'
+          field. Create an admin API key in Pocket ID and store it there.
+      when: pocket_id_user_groups | default([]) | length > 0
+
+    - name: Read declarative Pocket ID groups
+      ansible.builtin.uri:
+        url: "https://{{ pocket_id_hostname }}/api/user-groups?search={{ item.name | urlencode }}"
+        method: GET
+        headers:
+          X-API-Key: "{{ pocket_id_api_key }}"
+        return_content: true
+        status_code: 200
+      register: pocket_id_group_queries
+      retries: 12
+      delay: 5
+      until: pocket_id_group_queries.status == 200
+      loop: "{{ pocket_id_user_groups | default([]) }}"
+      loop_control:
+        label: "{{ item.name }}"
+      no_log: true
+
+    - name: Create missing declarative Pocket ID groups
+      ansible.builtin.uri:
+        url: "https://{{ pocket_id_hostname }}/api/user-groups"
+        method: POST
+        headers:
+          X-API-Key: "{{ pocket_id_api_key }}"
+        body_format: json
+        body:
+          friendlyName: "{{ item.item.friendly_name }}"
+          name: "{{ item.item.name }}"
+        status_code: 201
+      when: >-
+        item.json.data
+        | selectattr('name', 'equalto', item.item.name)
+        | list
+        | length == 0
+      loop: "{{ pocket_id_group_queries.results | default([]) }}"
+      loop_control:
+        label: "{{ item.item.name }}"
+      no_log: true
+
+    - name: Refresh declarative Pocket ID groups after creation
+      ansible.builtin.uri:
+        url: "https://{{ pocket_id_hostname }}/api/user-groups?search={{ item.name | urlencode }}"
+        method: GET
+        headers:
+          X-API-Key: "{{ pocket_id_api_key }}"
+        return_content: true
+        status_code: 200
+      register: pocket_id_group_membership_queries
+      loop: "{{ pocket_id_user_groups | default([]) }}"
+      loop_control:
+        label: "{{ item.name }}"
+      no_log: true
+
+    - name: Converge declarative Pocket ID group members
+      ansible.builtin.include_tasks: tasks/converge-user-group-members.yaml
+      loop: "{{ pocket_id_group_membership_queries.results | default([]) }}"
+      loop_control:
+        loop_var: pocket_id_group_membership_query
+        label: "{{ pocket_id_group_membership_query.item.name }}"
+      when: pocket_id_group_membership_query.item.members is defined

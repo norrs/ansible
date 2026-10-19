@@ -1,0 +1,38 @@
+---
+- name: Validate additional internal network names
+  ansible.builtin.assert:
+    that:
+      - item is match('^[a-z][a-z0-9_-]+$')
+      - item not in ['webservers', 'media_internal']
+  loop: "{{ nginx_proxy_additional_internal_networks | default([]) }}"
+
+- name: Inspect additional proxy networks
+  become: true
+  ansible.builtin.command:
+    argv: [docker, network, inspect, "{{ item }}"]
+  loop: "{{ nginx_proxy_additional_internal_networks | default([]) }}"
+  register: nginx_extra_networks
+  changed_when: false
+  failed_when: nginx_extra_networks.rc not in [0, 1]
+  check_mode: false
+  # The register result is used below; missing networks return rc=1.
+
+- name: Refuse unexpected existing proxy networks
+  ansible.builtin.assert:
+    that:
+      - (item.stdout | from_json)[0].Internal | bool
+      - (item.stdout | from_json)[0].Driver == 'bridge'
+  loop: "{{ nginx_extra_networks.results }}"
+  loop_control:
+    label: "{{ item.item }}"
+  when: item.rc == 0
+
+- name: Create missing internal proxy bridges
+  become: true
+  ansible.builtin.command:
+    argv: [docker, network, create, --driver, bridge, --internal, "{{ item.item }}"]
+  loop: "{{ nginx_extra_networks.results }}"
+  loop_control:
+    label: "{{ item.item }}"
+  when: item.rc == 1
+  changed_when: true

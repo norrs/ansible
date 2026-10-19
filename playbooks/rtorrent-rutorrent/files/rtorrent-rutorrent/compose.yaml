@@ -23,6 +23,9 @@ services:
       - "${RT_INC_PORT}"
     networks:
       - rtorrent-rutorrent
+{% if rtorrent_rutorrent_media_network_enabled | bool %}
+      - media-internal
+{% endif %}
 {% if rtorrent_rutorrent_auth_enabled | bool %}
       - webservers
 {% endif %}
@@ -55,6 +58,15 @@ services:
 {% for volume in rtorrent_rutorrent_volumes %}
       - "{{ volume }}"
 {% endfor %}
+{% for pool in rtorrent_rutorrent_storage_pools %}
+      - "{{ pool.host_path }}:{{ pool.container_path }}:rw"
+{% endfor %}
+{% if rtorrent_rutorrent_delete_guard_enabled | bool %}
+      - "{{ rtorrent_rutorrent_service_dir }}/bin/rtorrent-delete-seed:/usr/local/sbin/rtorrent-delete-seed:ro"
+{% endif %}
+{% if rtorrent_rutorrent_media_pruner_backups | length > 0 %}
+      - "{{ rtorrent_rutorrent_media_pruner_backups }}:/media-pruner-backups:ro"
+{% endif %}
       - "{{ rtorrent_rutorrent_service_dir }}/passwd:/passwd"
     ulimits:
       nproc: 65535
@@ -77,6 +89,11 @@ services:
 networks:
   rtorrent-rutorrent:
     name: {{ rtorrent_rutorrent_network_name }}
+{% if rtorrent_rutorrent_media_network_enabled | bool %}
+  media-internal:
+    external: true
+    name: {{ rtorrent_rutorrent_media_network_name }}
+{% endif %}
 {% if rtorrent_rutorrent_auth_enabled | bool %}
   webservers:
     external: true

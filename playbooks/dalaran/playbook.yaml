@@ -25,15 +25,9 @@
 - name: "Dalaran - nginx proxy with letsencrypt DNS-01"
   ansible.builtin.import_playbook: ../nginx-proxy-with-letsencrypt/playbook.yaml
   vars:
-    # Private values: nginx_proxy_nsupdate_server and nginx_proxy_nsupdate_zone
-    # are defined in private/group_vars/dalaran.yaml. See readme.md.
+    # Host settings live in private/group_vars/dalaran.yaml so the scoped
+    # media proxy playbook uses the same bind mounts and DNS-01 configuration.
     nginx_proxy_hosts: dalaran
-    nginx_proxy_acme_challenge: DNS-01
-    nginx_proxy_service_dir: /service/nginx-proxy
-    nginx_proxy_vhost_dir: /service/nginx-proxy/vhost.d
-    nginx_proxy_nsupdate_key_path: /service/nginx-proxy/nsupdate.key
-    nginx_proxy_acme_env_file: /service/nginx-proxy/acme-companion.env
-    nginx_proxy_dns_sleep: "60"
   tags:
     - dalaran-nginx-proxy
 
@@ -115,6 +109,20 @@
     rtorrent_rutorrent_nginx_validate_on_change: false
   tags:
     - dalaran-rtorrent-rutorrent
+
+- name: "Dalaran - media stack"
+  ansible.builtin.import_playbook: ../media-stack/playbook.yaml
+  vars:
+    media_stack_hosts: dalaran
+  tags:
+    - dalaran-media-stack
+
+- name: "Dalaran - guarded media integration service"
+  ansible.builtin.import_playbook: ../media-pruner/playbook.yaml
+  vars:
+    media_pruner_hosts: dalaran
+  tags:
+    - dalaran-media-pruner
 
 - name: "Dalaran - beszel"
   ansible.builtin.import_playbook: ../beszel/playbook.yaml

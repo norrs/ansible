@@ -1,0 +1,77 @@
+---
+- name: Select exact Pocket ID group for membership convergence
+  ansible.builtin.set_fact:
+    pocket_id_membership_group_matches: >-
+      {{
+        pocket_id_group_membership_query.json.data
+        | selectattr('name', 'equalto', pocket_id_group_membership_query.item.name)
+        | list
+      }}
+    pocket_id_declarative_member_ids: []
+
+- name: Require one exact Pocket ID group match
+  ansible.builtin.assert:
+    that:
+      - pocket_id_membership_group_matches | length == 1
+    fail_msg: >-
+      Expected exactly one Pocket ID group named
+      '{{ pocket_id_group_membership_query.item.name }}'.
+
+- name: Resolve declarative Pocket ID members by exact username
+  ansible.builtin.uri:
+    url: "https://{{ pocket_id_hostname }}/api/users?search={{ item | urlencode }}"
+    method: GET
+    headers:
+      X-API-Key: "{{ pocket_id_api_key }}"
+    return_content: true
+    status_code: 200
+  register: pocket_id_declarative_member_queries
+  loop: "{{ pocket_id_group_membership_query.item.members }}"
+  loop_control:
+    label: "{{ item }}"
+  no_log: true
+
+- name: Require every declarative Pocket ID username to exist exactly once
+  ansible.builtin.assert:
+    that:
+      - >-
+        item.json.data
+        | selectattr('username', 'equalto', item.item)
+        | list
+        | length == 1
+    fail_msg: >-
+      Pocket ID username '{{ item.item }}' was not found exactly once. Group
+      membership was not changed.
+  loop: "{{ pocket_id_declarative_member_queries.results | default([]) }}"
+  loop_control:
+    label: "{{ item.item }}"
+
+- name: Collect declarative Pocket ID member IDs
+  ansible.builtin.set_fact:
+    pocket_id_declarative_member_ids: >-
+      {{
+        pocket_id_declarative_member_ids
+        + (
+            item.json.data
+            | selectattr('username', 'equalto', item.item)
+            | map(attribute='id')
+            | list
+          )
+      }}
+  loop: "{{ pocket_id_declarative_member_queries.results | default([]) }}"
+  loop_control:
+    label: "{{ item.item }}"
+  no_log: true
+
+- name: Apply authoritative Pocket ID group membership
+  ansible.builtin.uri:
+    url: >-
+      https://{{ pocket_id_hostname }}/api/user-groups/{{ pocket_id_membership_group_matches[0].id }}/users
+    method: PUT
+    headers:
+      X-API-Key: "{{ pocket_id_api_key }}"
+    body_format: json
+    body:
+      userIds: "{{ pocket_id_declarative_member_ids | unique | list }}"
+    status_code: 200
+  no_log: true
