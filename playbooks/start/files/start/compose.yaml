@@ -1,0 +1,39 @@
+services:
+  start:
+    image: {{ start_image }}
+    container_name: start
+    restart: unless-stopped
+    read_only: true
+    user: "{{ start_container_uid }}:{{ start_container_gid }}"
+    env_file: .env
+    environment:
+      VIRTUAL_HOST: "{{ start_hostname }}"
+      VIRTUAL_PORT: "8080"
+      ACME_HOST: "{{ start_hostname }}"
+      LETSENCRYPT_HOST: "{{ start_hostname }}"
+    expose:
+      - "8080"
+    ports:
+      - 127.0.0.1:18080:8080
+    volumes:
+      - ./data:/data
+      - ./secrets/oidc_client_secret:/run/secrets/oidc_client_secret:ro
+    tmpfs:
+      - /tmp:size=16m,mode=1777
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    healthcheck:
+      test: ["CMD", "/app/start", "healthcheck"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+    networks:
+      - webservers
+
+networks:
+  webservers:
+    external: true
+    name: webservers
