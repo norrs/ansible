@@ -15,6 +15,7 @@ services:
   rtorrent-rutorrent:
     image: {{ rtorrent_rutorrent_image }}
     container_name: rtorrent-rutorrent
+    entrypoint: ["/bin/sh", "/usr/local/sbin/rtorrent-passwd-init"]
     expose:
       - "${RT_DHT_PORT}/udp"
       - "${XMLRPC_PORT}"
@@ -68,6 +69,8 @@ services:
       - "{{ rtorrent_rutorrent_media_pruner_backups }}:/media-pruner-backups:ro"
 {% endif %}
       - "{{ rtorrent_rutorrent_service_dir }}/passwd:/passwd"
+      - "{{ rtorrent_rutorrent_service_dir }}/init/99-protect-htpasswd.sh:/usr/local/share/rtorrent/99-protect-htpasswd.sh:ro"
+      - "{{ rtorrent_rutorrent_service_dir }}/init/start-with-passwd-protection.sh:/usr/local/sbin/rtorrent-passwd-init:ro"
     ulimits:
       nproc: 65535
       nofile:

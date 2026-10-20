@@ -43,12 +43,33 @@ item: rtorrent-rutorrent/geoip-updater
 field: license_key
 ```
 
-The auth passwd files are created if missing and left untouched afterward:
+The auth passwd files are created empty only if missing. Existing credential
+contents are never replaced; ownership follows the configured PUID/PGID and
+Ansible enforces mode `0640`:
 
 ```text
 /service/rtorrent-rutorrent/passwd/rpc.htpasswd
 /service/rtorrent-rutorrent/passwd/rutorrent.htpasswd
 /service/rtorrent-rutorrent/passwd/webdav.htpasswd
+```
+
+The upstream image's `03-config.sh` resets password-file modes to `0644` at
+startup. A root-owned `99-protect-htpasswd.sh` runs after that script and before
+services start to restore `0640` on exactly these three regular files. The
+managed scripts are bind-mounted read-only outside `/etc/cont-init.d`; a small
+entrypoint copies the hook into that container-local directory and then execs
+the upstream `/init`, forwarding its arguments. This avoids s6 v2 chown/chmod
+errors on a read-only bind without skipping any upstream initialization.
+The hook refuses symlinks or missing files and never modifies
+password hashes or other files. nginx runs as PUID/PGID, so it retains read
+access without exposing password hashes to other host users. No credentials
+are rotated by this fix. A container recreation is required when first adding
+the mount; simply restarting an existing container does not add new mounts.
+
+Run offline regression tests with:
+
+```sh
+python3 playbooks/rtorrent-rutorrent/test_htpasswd_permissions.py
 ```
 
 Sources:

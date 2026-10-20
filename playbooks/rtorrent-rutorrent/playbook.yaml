@@ -394,6 +394,28 @@
         - rutorrent.htpasswd
         - webdav.htpasswd
 
+    - name: Create root-owned rTorrent container initialization directory
+      become: true
+      ansible.builtin.file:
+        path: "{{ rtorrent_rutorrent_service_dir }}/init"
+        state: directory
+        owner: root
+        group: root
+        mode: '0755'
+
+    - name: Install persistent rTorrent htpasswd permission protection
+      become: true
+      ansible.builtin.copy:
+        src: "files/rtorrent-rutorrent/{{ item }}"
+        dest: "{{ rtorrent_rutorrent_service_dir }}/init/{{ item }}"
+        owner: root
+        group: root
+        mode: '0755'
+      loop:
+        - 99-protect-htpasswd.sh
+        - start-with-passwd-protection.sh
+      register: rtorrent_rutorrent_passwd_init
+
     - name: "{{ rtorrent_rutorrent_service_dir }}/.env"
       become: true
       ansible.builtin.template:
@@ -500,6 +522,7 @@
           or rtorrent_rutorrent_app_env.changed
           or (rtorrent_rutorrent_geoip_env is defined and rtorrent_rutorrent_geoip_env.changed)
           or rtorrent_rutorrent_compose.changed
+          or rtorrent_rutorrent_passwd_init.changed
           or (rtorrent_rutorrent_delete_guard_script is defined and rtorrent_rutorrent_delete_guard_script.changed)
           or (rtorrent_rutorrent_completion_hook is defined and rtorrent_rutorrent_completion_hook.changed)
           or (rtorrent_rutorrent_erase_hook is defined and rtorrent_rutorrent_erase_hook.changed)
