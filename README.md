@@ -107,6 +107,7 @@ Check facts:
 - [playbooks/oauth2-proxy/readme.md](./playbooks/oauth2-proxy/readme.md)
 - [playbooks/rtorrent-rutorrent/readme.md](./playbooks/rtorrent-rutorrent/readme.md)
 - [playbooks/samba-new/readme.md](./playbooks/samba-new/readme.md)
+- [playbooks/start/readme.md](./playbooks/start/readme.md)
 - [playbooks/tinyauth-remove/readme.md](./playbooks/tinyauth-remove/readme.md)
 - [playbooks/tinyauth/readme.md](./playbooks/tinyauth/readme.md)
 - [playbooks/wireguard-client/readme.md](./playbooks/wireguard-client/readme.md)

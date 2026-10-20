@@ -82,6 +82,16 @@
   tags:
     - dalaran-tinyauth
 
+- name: "Dalaran - Start launchpad"
+  ansible.builtin.import_playbook: ../start/playbook.yaml
+  vars:
+    # Private values: start_hostname, start_image, start_admin_group, and
+    # start_trusted_proxies are defined in private/group_vars/dalaran.yaml.
+    start_hosts: dalaran
+    start_nginx_validate_on_change: false
+  tags:
+    - dalaran-start
+
 - name: "Dalaran - oauth2-proxy"
   ansible.builtin.import_playbook: ../oauth2-proxy/playbook.yaml
   vars:

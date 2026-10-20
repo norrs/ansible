@@ -19,6 +19,33 @@ POCKET_ID_CLIENT_ID
 POCKET_ID_CLIENT_SECRET
 ```
 
+Set `tinyauth_op_vault` explicitly in private inventory. The playbook does not
+provide a deployment-specific vault default. Override `tinyauth_op_item` if the
+item is not named `tinyauth`. Secret-bearing environment rendering is excluded
+from logs and diffs.
+
+## Downstream OIDC clients
+
+Declare every downstream client that TinyAuth should register, including any
+existing clients that must remain configured:
+
+```yaml
+tinyauth_oidc_clients:
+  - id: status
+    name: Status
+    client_id_field: STATUS_CLIENT_ID
+    client_secret_field: STATUS_CLIENT_SECRET
+    trusted_redirect_uris:
+      - https://status.example.com/auth/callback
+```
+
+Existing client pairs are loaded from the configured secret-store fields.
+Missing pairs are generated and stored there; actual credentials never belong
+in inventory. Keep each client's ID, fields and callback stable across runs.
+`trusted_redirect_uris` accepts either a string or a list. An empty client list
+renders no downstream client registrations; it does not retain an implicit
+application-specific client. Keep Pocket ID as TinyAuth's upstream provider.
+
 The playbook configures Pocket ID as the OAuth login provider. A custom
 TinyAuth image can be deployed by setting `tinyauth_image`.
 

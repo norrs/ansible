@@ -1,0 +1,196 @@
+---
+- name: start
+  hosts: "{{ start_hosts | default('dalaran') }}"
+  vars:
+    start_service_dir: /service/start
+    start_data_dir: "{{ start_service_dir }}/data"
+    start_secrets_dir: "{{ start_service_dir }}/secrets"
+    start_client_id_field: START_CLIENT_ID
+    start_client_secret_field: START_CLIENT_SECRET
+    start_container_uid: "65532"
+    start_container_gid: "65532"
+  tasks:
+    - name: Require private Start secret-store configuration
+      ansible.builtin.assert:
+        that:
+          - start_op_vault | default('') | length > 0
+          - start_op_item | default('') | length > 0
+        fail_msg: Define start_op_vault and start_op_item in private inventory.
+
+    - name: Read Start OIDC credentials from 1Password
+      ansible.builtin.set_fact:
+        start_oidc_client_id: >-
+          {{ lookup('community.general.onepassword', start_op_item, field=start_client_id_field, vault=start_op_vault, errors='ignore') | default('', true) }}
+        start_oidc_client_secret: >-
+          {{ lookup('community.general.onepassword', start_op_item, field=start_client_secret_field, vault=start_op_vault, errors='ignore') | default('', true) }}
+      no_log: true
+
+    - name: Require Start OIDC credentials
+      ansible.builtin.assert:
+        that:
+          - start_oidc_client_id | length > 0
+          - start_oidc_client_secret | length > 0
+        fail_msg: >-
+          Start requires START_CLIENT_ID and START_CLIENT_SECRET in the
+          configured 1Password item. Run the Tinyauth play first so its
+          declarative OIDC-client task can generate them.
+
+    - name: Require the configured Start image locally
+      become: true
+      ansible.builtin.command:
+        argv:
+          - docker
+          - image
+          - inspect
+          - "{{ start_image }}"
+      register: start_image_inspect
+      changed_when: false
+      failed_when: false
+      when: not ansible_check_mode
+
+    - name: Explain how to load a missing Start image
+      ansible.builtin.assert:
+        that:
+          - start_image_inspect.rc == 0
+        fail_msg: >-
+          Docker image '{{ start_image }}' is not present on {{ inventory_hostname }}.
+          Build and load it with 'bazel run //deploy:load' on the target host, or set
+          start_image to an image already delivered to that host.
+      when: not ansible_check_mode
+
+    - name: Create Start service directory
+      become: true
+      ansible.builtin.file:
+        path: "{{ start_service_dir }}"
+        state: directory
+        owner: root
+        group: root
+        mode: '0755'
+
+    - name: Create Start writable directories
+      become: true
+      ansible.builtin.file:
+        path: "{{ item }}"
+        state: directory
+        owner: "{{ start_container_uid }}"
+        group: "{{ start_container_gid }}"
+        mode: '0750'
+      loop:
+        - "{{ start_data_dir }}"
+        - "{{ start_secrets_dir }}"
+
+    - name: Write Start OIDC client secret
+      become: true
+      ansible.builtin.copy:
+        content: "{{ start_oidc_client_secret | trim }}\n"
+        dest: "{{ start_secrets_dir }}/oidc_client_secret"
+        owner: "{{ start_container_uid }}"
+        group: "{{ start_container_gid }}"
+        mode: '0400'
+      register: start_oidc_secret_file
+      no_log: true
+
+    - name: Render Start environment
+      become: true
+      ansible.builtin.template:
+        src: templates/env.j2
+        dest: "{{ start_service_dir }}/.env"
+        owner: root
+        group: root
+        mode: '0640'
+      register: start_env
+
+    - name: Render Start compose service
+      become: true
+      ansible.builtin.template:
+        src: files/start/compose.yaml
+        dest: "{{ start_service_dir }}/compose.yaml"
+        owner: root
+        group: root
+        mode: '0644'
+      register: start_compose
+
+    - name: Render Start nginx-proxy vhost settings
+      become: true
+      ansible.builtin.template:
+        src: files/start/nginx-vhost.conf.j2
+        dest: "/service/nginx-proxy/vhost.d/{{ start_hostname }}"
+        owner: root
+        group: root
+        mode: '0644'
+      register: start_vhost
+
+    - name: Install Start systemd unit
+      become: true
+      ansible.builtin.template:
+        src: files/start.service
+        dest: /etc/systemd/system/start.service
+        owner: root
+        group: root
+        mode: '0644'
+      register: start_unit
+      when: ansible_facts['service_mgr'] == 'systemd'
+
+    - name: Reload systemd for Start
+      become: true
+      ansible.builtin.systemd:
+        daemon_reload: true
+      when: start_unit.changed | default(false)
+
+    - name: Restart Start when its deployment changed
+      become: true
+      ansible.builtin.systemd:
+        name: start
+        state: restarted
+      when: >-
+        start_unit.changed | default(false)
+        or start_compose.changed
+        or start_env.changed
+        or start_oidc_secret_file.changed
+
+    - name: Make sure Start is running
+      become: true
+      ansible.builtin.systemd:
+        name: start
+        state: started
+        enabled: true
+
+    - name: Wait for Start readiness
+      ansible.builtin.uri:
+        url: http://127.0.0.1:18080/readyz
+        status_code: 200
+      register: start_readiness
+      retries: 12
+      delay: 5
+      until: start_readiness.status == 200
+      when: not ansible_check_mode
+
+    - name: Validate nginx-proxy after Start vhost changes
+      become: true
+      ansible.builtin.command:
+        argv:
+          - docker
+          - exec
+          - nginx-proxy
+          - nginx
+          - -t
+      changed_when: false
+      when: >-
+        not ansible_check_mode
+        and start_nginx_validate_on_change | default(true) | bool
+        and start_vhost.changed
+
+    - name: Reload nginx-proxy after Start vhost changes
+      become: true
+      ansible.builtin.command:
+        argv:
+          - docker
+          - exec
+          - nginx-proxy
+          - nginx
+          - -s
+          - reload
+      when: >-
+        not ansible_check_mode
+        and start_nginx_validate_on_change | default(true) | bool
+        and start_vhost.changed
