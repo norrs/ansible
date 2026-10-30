@@ -6,6 +6,29 @@
     mailserver_service_account_default_op_field: PASSWORD
   tasks:
 
+    - name: Prevent host Exim from competing with Docker Mailserver for port 25
+      when: ansible_facts['service_mgr'] == 'systemd'
+      tags:
+        - mailserver-host-mta
+      block:
+        - name: Gather installed services
+          ansible.builtin.service_facts:
+
+        - name: Disable the host Exim service
+          when: "'exim4.service' in ansible_facts.services or 'exim4' in ansible_facts.services"
+          become: true
+          block:
+            - name: Stop and disable the host Exim service
+              ansible.builtin.systemd:
+                name: exim4.service
+                state: stopped
+                enabled: false
+
+            - name: Mask the host Exim service
+              ansible.builtin.systemd:
+                name: exim4.service
+                masked: true
+
     - name: "/opt/dms"
       become: true
       ansible.builtin.file:
@@ -114,6 +137,8 @@
         state: started
         enabled: true
         name: mailserver
+      tags:
+        - mailserver-host-mta
 
     - name: Check DMS service account 1Password credentials
       ansible.builtin.assert:

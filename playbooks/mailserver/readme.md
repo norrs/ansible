@@ -3,6 +3,20 @@
 * https://github.com/docker-mailserver/docker-mailserver
 * https://docker-mailserver.github.io/docker-mailserver/latest/
 
+## Host SMTP service
+
+Docker Mailserver uses host networking and needs port 25. Before starting it,
+the playbook stops, disables and masks `exim4.service` when Exim is installed.
+The mask prevents Exim from starting again and taking the SMTP port after a
+reboot or package upgrade. Exim's package, configuration and queued mail are
+left in place.
+
+To apply just this guard and ensure the existing mailserver unit is started:
+
+```bash
+ansible-playbook -i inventory.yaml playbooks/mailserver/playbook.yaml --tags mailserver-host-mta --ask-become-pass
+```
+
 ## Service SMTP accounts and aliases
 
 The playbook can manage multiple SMTP service accounts and their delivery
