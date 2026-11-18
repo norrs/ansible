@@ -49,6 +49,7 @@
         mode: '0644'
       vars:
         DEFAULT_EMAIL: "{{ lookup('community.general.onepassword', 'nginx-proxy-with-letsencrypt.default_email', field='notesPlain', vault='infra.norrs') }}"
+      notify: Restart webserver-diablo
 
 
     - name: "/etc/systemd/system/webserver-diablo.service"
@@ -74,3 +75,10 @@
         state: started
         enabled: true
         name: webserver-diablo
+
+  handlers:
+    - name: Restart webserver-diablo
+      become: true
+      ansible.builtin.systemd:
+        name: webserver-diablo
+        state: restarted

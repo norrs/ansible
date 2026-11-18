@@ -52,11 +52,31 @@ NB: Doesn't use onepassword.connect yet, but keeping it for now.
 ```
 $ ansible-galaxy collection install onepassword.connect
 $ ansible-galaxy collection install community.general
+$ ansible-galaxy collection install community.docker
 ```
 
 ## Secrets
 
 Obtained via 1password integrations.
+
+## Container images
+
+Inventory declares the desired images: `nginx_proxy_image`,
+`nginx_proxy_acme_image`, `rtorrent_rutorrent_image`,
+`media_stack_jellyfin_proxy_image`, and `nginx_image`
+for the standalone websites and webmail. Update the relevant image reference
+and run the normal host/component playbook. Templates and service handlers
+apply the new image; an unchanged declaration leaves the running service alone.
+Use versioned, immutable references rather than moving `latest` tags.
+
+Images named `localhost/...` must be available on the target host. ruTorrent's
+playbook can build its declared custom image when
+`rtorrent_rutorrent_build_image: true`; existing images are reused. The proxy
+builds are separate from reconciliation and documented under
+[images/](images/README.md).
+When a patched upstream image is available, replace the inventory reference
+with its registry digest; the deployment playbooks need no security-specific
+changes.
 
 ## Playbooks for nodes
 

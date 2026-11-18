@@ -7,6 +7,18 @@ This playbook runs `crazymax/rtorrent-rutorrent` and
 Concrete host paths, ports, UID/GID values, and media mounts belong in private
 vars.
 
+## Container image
+
+`rtorrent_rutorrent_image` declares the desired application image. Changing it
+updates the Compose definition and restarts the service through the normal
+playbook. Registry images are pulled when missing. Set
+`rtorrent_rutorrent_build_image: true` to build a declared `localhost/...`
+image on the host from [files/image](files/image/) when it is missing. An
+existing image is reused, so give recipe updates a new image tag rather than replacing a tag
+already in use. Repeated runs do not rebuild or restart an unchanged image.
+The current custom image includes nginx 1.31.9 and its matching WebDAV/GeoIP
+modules; no separate security rollout is required.
+
 ## ruTorrent web UI
 
 Set `rtorrent_rutorrent_auth_provider: tinyauth` and

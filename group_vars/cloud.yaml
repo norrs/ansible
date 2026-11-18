@@ -1,0 +1,7 @@
+---
+nginx_proxy_image: localhost/nginx-proxy:1.31.9-452f458e74be
+nginx_proxy_acme_image: nginxproxy/acme-companion@sha256:1eb0de92c64fcfa75bb0e7bd278e31bd3084142a6420c327203fbec7dfe97873
+nginx_proxy_restart_dependents:
+  - acme-companion
+  - webserver-diablo
+  - webserver-norrs

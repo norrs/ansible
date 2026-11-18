@@ -1,0 +1,38 @@
+---
+- name: Prepare the optional custom application image
+  when:
+    - rtorrent_rutorrent_build_image | default(false) | bool
+    - (rtorrent_rutorrent_image | default('')).startswith('localhost/')
+  become: true
+  block:
+    - name: Create the image build directory
+      ansible.builtin.file:
+        path: "{{ rtorrent_rutorrent_service_dir | default('/service/rtorrent-rutorrent') }}/image"
+        state: directory
+        owner: root
+        group: root
+        mode: '0755'
+
+    - name: Install the application image recipe
+      ansible.builtin.copy:
+        src: "{{ playbook_dir }}/../rtorrent-rutorrent/files/image/{{ item }}"
+        dest: "{{ rtorrent_rutorrent_service_dir | default('/service/rtorrent-rutorrent') }}/image/{{ item }}"
+        owner: root
+        group: root
+        mode: '0644'
+      loop: [Dockerfile, APKBUILD]
+
+    - name: Build the declared application image if missing
+      community.docker.docker_image_build:
+        name: "{{ rtorrent_rutorrent_image }}"
+        path: "{{ rtorrent_rutorrent_service_dir | default('/service/rtorrent-rutorrent') }}/image"
+        rebuild: never
+        pull: true
+      register: rtorrent_rutorrent_image_build
+
+- name: Ensure the declared rTorrent/ruTorrent image is available
+  become: true
+  community.docker.docker_image:
+    name: "{{ rtorrent_rutorrent_image | default('crazymax/rtorrent-rutorrent:latest') }}"
+    source: "{{ 'local' if (rtorrent_rutorrent_image | default('crazymax/rtorrent-rutorrent:latest')).startswith('localhost/') else 'pull' }}"
+    state: present
