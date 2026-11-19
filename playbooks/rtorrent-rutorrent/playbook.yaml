@@ -48,6 +48,10 @@
       ansible.builtin.set_fact:
         rtorrent_rutorrent_web_hostnames: "{{ ([rtorrent_rutorrent_web_hostname] + rtorrent_rutorrent_web_aliases) | reject('equalto', '') | unique | list }}"
 
+    - name: Prepare the declared rTorrent/ruTorrent image
+      ansible.builtin.import_tasks: tasks/image.yaml
+      tags: [rtorrent-rutorrent-image]
+
     - name: Validate ruTorrent auth configuration
       ansible.builtin.assert:
         that:
@@ -522,6 +526,7 @@
           or rtorrent_rutorrent_app_env.changed
           or (rtorrent_rutorrent_geoip_env is defined and rtorrent_rutorrent_geoip_env.changed)
           or rtorrent_rutorrent_compose.changed
+          or rtorrent_rutorrent_image_build.changed | default(false)
           or rtorrent_rutorrent_passwd_init.changed
           or (rtorrent_rutorrent_delete_guard_script is defined and rtorrent_rutorrent_delete_guard_script.changed)
           or (rtorrent_rutorrent_completion_hook is defined and rtorrent_rutorrent_completion_hook.changed)

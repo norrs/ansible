@@ -2,6 +2,14 @@
 - name: nginx proxy with letsencrypt
   hosts: "{{ nginx_proxy_hosts | default('cloud') }}"
   tasks:
+    - name: Ensure the declared nginx-proxy image is available
+      become: true
+      community.docker.docker_image:
+        name: "{{ nginx_proxy_image | default('nginxproxy/nginx-proxy:1.7') }}"
+        source: "{{ 'local' if (nginx_proxy_image | default('nginxproxy/nginx-proxy:1.7')).startswith('localhost/') else 'pull' }}"
+        state: present
+      tags: [nginx-proxy-image]
+
     - name: Prepare additional internal proxy networks
       ansible.builtin.import_tasks: tasks/internal-networks.yaml
 

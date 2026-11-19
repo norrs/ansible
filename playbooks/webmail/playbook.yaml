@@ -53,6 +53,7 @@
         DEFAULT_EMAIL: "{{ lookup('community.general.onepassword', 'nginx-proxy-with-letsencrypt.default_email', field='notesPlain', vault='infra.norrs') }}"
         ROUNDCUBE_DEFAULT_HOST: "tls://diablo.norrs.no"
         ROUNDCUBE_SMTP_SERVER: "tls://diablo.norrs.no"
+      notify: Restart webmail
 
 
 
@@ -79,3 +80,10 @@
         state: started
         enabled: true
         name: webmail
+
+  handlers:
+    - name: Restart webmail
+      become: true
+      ansible.builtin.systemd:
+        name: webmail
+        state: restarted

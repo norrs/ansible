@@ -1,0 +1,98 @@
+# Local security rebuild of the three nginx packages used by ruTorrent.
+# nginx release signature verified with the key published on nginx.org:
+# D6786CE303D9A9022998DC6CC8464D549AF75C0A.
+# Module checksums/patches come from Alpine aports commit
+# 911125ed67c244f96e675b936e3d06883f0c0c41 (v3.22 stable).
+pkgname=nginx
+pkgver=1.31.9
+pkgrel=0
+pkgdesc="nginx security rebuild for the existing ruTorrent image"
+url="https://nginx.org"
+arch="all"
+license="BSD-2-Clause"
+makedepends="linux-headers openssl-dev pcre2-dev zlib-dev libmaxminddb-dev libxml2-dev libxslt-dev"
+subpackages="$pkgname-mod-http-dav-ext:dav_ext $pkgname-mod-http-geoip2:geoip2"
+options="!check"
+_aports=911125ed67c244f96e675b936e3d06883f0c0c41
+source="
+    https://nginx.org/download/nginx-$pkgver.tar.gz
+    https://distfiles.alpinelinux.org/distfiles/v3.22/nginx-dav-ext-module-3.0.0.tar.gz
+    https://distfiles.alpinelinux.org/distfiles/v3.22/ngx_http_geoip2_module-3.4.tar.gz
+    https://raw.githubusercontent.com/alpinelinux/aports/$_aports/main/nginx/nginx-dav-ext-module~dav-class-1-2.patch
+    https://raw.githubusercontent.com/alpinelinux/aports/$_aports/main/nginx/nginx-dav-ext-module~fix-profind-fail-on-broken-symlinks.patch
+    https://raw.githubusercontent.com/alpinelinux/aports/$_aports/main/nginx/nginx-dav-ext-module~fix-dot-dirs.patch
+    "
+builddir="$srcdir/nginx-$pkgver"
+
+prepare() {
+    local patchfile
+    for patchfile in "$srcdir"/nginx-dav-ext-module~*.patch; do
+        patch -d "$srcdir/nginx-dav-ext-module-3.0.0" -p1 < "$patchfile"
+    done
+}
+
+build() {
+    # Preserve the installed core HTTP features and path layout. The original
+    # image only installs DAV-ext and GeoIP2 dynamic modules; rebuild both
+    # against this nginx version rather than loading old, incompatible .so files.
+    ./configure \
+        --prefix=/var/lib/nginx \
+        --sbin-path=/usr/sbin/nginx \
+        --modules-path=/usr/lib/nginx/modules \
+        --conf-path=/etc/nginx/nginx.conf \
+        --pid-path=/run/nginx/nginx.pid \
+        --lock-path=/run/nginx/nginx.lock \
+        --http-client-body-temp-path=/var/lib/nginx/tmp/client_body \
+        --http-proxy-temp-path=/var/lib/nginx/tmp/proxy \
+        --http-fastcgi-temp-path=/var/lib/nginx/tmp/fastcgi \
+        --http-uwsgi-temp-path=/var/lib/nginx/tmp/uwsgi \
+        --http-scgi-temp-path=/var/lib/nginx/tmp/scgi \
+        --user=nginx --group=nginx \
+        --with-threads --with-file-aio \
+        --with-http_ssl_module --with-http_v2_module --with-http_v3_module \
+        --with-http_realip_module --with-http_addition_module \
+        --with-http_sub_module --with-http_dav_module \
+        --with-http_flv_module --with-http_mp4_module \
+        --with-http_gunzip_module --with-http_gzip_static_module \
+        --with-http_auth_request_module --with-http_random_index_module \
+        --with-http_secure_link_module --with-http_degradation_module \
+        --with-http_slice_module --with-http_stub_status_module \
+        --add-dynamic-module="$srcdir/nginx-dav-ext-module-3.0.0" \
+        --add-dynamic-module="$srcdir/ngx_http_geoip2_module-3.4"
+    make -j4
+}
+
+package() {
+    install -Dm755 objs/nginx "$pkgdir/usr/sbin/nginx"
+    install -d "$pkgdir/etc/nginx"
+    local configfile
+    for configfile in fastcgi.conf fastcgi_params mime.types nginx.conf scgi_params uwsgi_params; do
+        install -m644 "/original/etc/nginx/$configfile" "$pkgdir/etc/nginx/"
+    done
+    mkdir -p "$pkgdir/var/lib"
+    cp -a /original/var/lib/nginx "$pkgdir/var/lib/"
+    install -Dm644 LICENSE "$pkgdir/usr/share/licenses/nginx/LICENSE"
+}
+
+dav_ext() {
+    pkgdesc="WebDAV extension built for nginx $pkgver"
+    depends="nginx=$pkgver-r$pkgrel"
+    install -Dm755 "$builddir/objs/ngx_http_dav_ext_module.so" "$subpkgdir/usr/lib/nginx/modules/ngx_http_dav_ext_module.so"
+    install -Dm644 /original/etc/nginx/modules/10_http_dav_ext.conf "$subpkgdir/etc/nginx/modules/10_http_dav_ext.conf"
+}
+
+geoip2() {
+    pkgdesc="GeoIP2 module built for nginx $pkgver"
+    depends="nginx=$pkgver-r$pkgrel"
+    install -Dm755 "$builddir/objs/ngx_http_geoip2_module.so" "$subpkgdir/usr/lib/nginx/modules/ngx_http_geoip2_module.so"
+    install -Dm644 /original/etc/nginx/modules/10_http_geoip2.conf "$subpkgdir/etc/nginx/modules/10_http_geoip2.conf"
+}
+
+sha512sums="
+282f12d4106b49f2e715defdea6855ecf32fe5957a8c61c19ed0ca73bad5ea737c47f73dd8c5fa2cfe67f441d2912cedc3649b5d00fce895537f54eb9f765210  nginx-1.31.9.tar.gz
+d0193ba90f1ef46c4e470630c4394bdf99d94fd2e3bd8be6cb2ba1655ec59944b1269025f032b79dc2c6dad366e54389ef6a6da2ddeb91d535a4027f2162fbde  nginx-dav-ext-module-3.0.0.tar.gz
+18dea21e5ae2647bea1fc448058a1b773c936917245edef8d861d5e23ed92e9a3b1ec4ef43ffb2ece7b5899d787910adcf4fbd39f84d7e8d7c54759e2fee5b72  ngx_http_geoip2_module-3.4.tar.gz
+eca43f06baa092b1e32e4593e5fba89fbac37a140eee4de186edff478a41007affae94f73a5a8b049c0fc83afaeb80af81a4532950c220d39dc8c00baa0f2874  nginx-dav-ext-module~dav-class-1-2.patch
+b77829e30e09bc48356e9605738a1a701a1842aee7f75c1b847299515bbd0cf422e3634f20d40fb818b8551eca331128de3cb77d0e21462859fca232f38ef658  nginx-dav-ext-module~fix-profind-fail-on-broken-symlinks.patch
+16d8c5d099e1c3d9f33600dbe59c0f1ebc3126f500126fd1edb3fb758982df603e96d33a01c73a3b34461bab0b8fe1a568a00c15144d38784b9ed991dc5faaa5  nginx-dav-ext-module~fix-dot-dirs.patch
+"
